@@ -479,12 +479,13 @@ def parse_qa(qa_row):
 
 
 # 自动标注
-def auto_label(qas, ingredients, directions):
+def auto_label(qas, ingredients, directions, recipe_id):
     ret_questions = []
     ret_answers = []
     ret_tokens = []
     ret_labels = []
-    ret_match_lv = []
+    ret_match_lvs = []
+    ret_ids = []
     for idx, qa in qas.iterrows():
         if qa['type'] in ['count', 'act_first']:
             # todo 不标注
@@ -506,7 +507,8 @@ def auto_label(qas, ingredients, directions):
                 ret_answers.append(qa['answer'])
                 ret_tokens.append(tokens)
                 ret_labels.append([0 for _ in tokens])
-                ret_match_lv.append('no_answer')
+                ret_match_lvs.append('no_answer')
+                ret_ids.append("{}-{}-{}".format(recipe_id, str(qa['cat_id']), str(qa['seq_id'])))
                 continue
             # 答案文本完全匹配
             label_offsets = []
@@ -526,7 +528,8 @@ def auto_label(qas, ingredients, directions):
                 ret_answers.append(qa['answer'])
                 ret_tokens.append(tokens)
                 ret_labels.append(labels)
-                ret_match_lv.append(match_lv)
+                ret_match_lvs.append(match_lv)
+                ret_ids.append("{}-{}-{}".format(recipe_id, str(qa['cat_id']), str(qa['seq_id'])))
                 continue
             # 答案核心文本部分匹配
             label_offsets = []
@@ -546,7 +549,8 @@ def auto_label(qas, ingredients, directions):
                 ret_answers.append(qa['answer'])
                 ret_tokens.append(tokens)
                 ret_labels.append(labels)
-                ret_match_lv.append(match_lv)
+                ret_match_lvs.append(match_lv)
+                ret_ids.append("{}-{}-{}".format(recipe_id, str(qa['cat_id']), str(qa['seq_id'])))
                 continue
             # 答案关键词匹配
             label_offsets = []
@@ -567,18 +571,20 @@ def auto_label(qas, ingredients, directions):
                 ret_answers.append(qa['answer'])
                 ret_tokens.append(tokens)
                 ret_labels.append(labels)
-                ret_match_lv.append(match_lv)
+                ret_match_lvs.append(match_lv)
+                ret_ids.append("{}-{}-{}".format(recipe_id, str(qa['cat_id']), str(qa['seq_id'])))
                 continue
             # 没匹配到答案
             ret_questions.append(qa['question'])
             ret_answers.append(qa['answer'])
             ret_tokens.append(tokens)
             ret_labels.append([0 for _ in tokens])
-            ret_match_lv.append('cannot_match')
-    return ret_questions, ret_answers, ret_tokens, ret_labels, ret_match_lv
+            ret_match_lvs.append('cannot_match')
+            ret_ids.append("{}-{}-{}".format(recipe_id, str(qa['cat_id']), str(qa['seq_id'])))
+    return ret_questions, ret_answers, ret_tokens, ret_labels, ret_match_lvs, ret_ids
 
 
-def data_process():
+def data_process(dataset_name):
     data_train_dir = os.path.join(data_dir, 'train')
     data_vali_dir = os.path.join(data_dir, 'val')
     data_test_dir = os.path.join(data_dir, 'test')
@@ -587,8 +593,14 @@ def data_process():
 
     # for file in os.listdir(data_val_dir):
     #     print(file)
+    if 'train' == dataset_name:
+        data_uesd_dir = data_train_dir
+    elif 'vali' == dataset_name:
+        data_uesd_dir = data_vali_dir
+    else:
+        data_uesd_dir = None
 
-    with open(os.path.join(data_vali_dir, 'crl_srl.csv'), 'r', encoding='utf-8') as f:
+    with open(os.path.join(data_uesd_dir, 'crl_srl.csv'), 'r', encoding='utf-8') as f:
         data = f.read()
         data = data.split('\n\n\n')
         data = [parse(d, fields=fields) for d in data]
@@ -611,24 +623,44 @@ def data_process():
     ret_answers = []
     ret_tokens = []
     ret_labels = []
-    ret_match_lv = []
+    ret_match_lvs = []
+    ret_ids = []
     for recipe in recipes:
-        questions, answers, tokens, labels, match_lv \
-            = auto_label(recipe['qa_df'], recipe['ingredient_dfs'], recipe['direction_dfs'])
+        questions, answers, tokens, labels, match_lv, ids \
+            = auto_label(recipe['qa_df'], recipe['ingredient_dfs'], recipe['direction_dfs'], recipe['newdoc_id'])
         ret_questions.extend(questions)
         ret_answers.extend(answers)
         ret_tokens.extend(tokens)
         ret_labels.extend(labels)
-        ret_match_lv.extend(match_lv)
-    corpus = pd.DataFrame(
-        {'q': ret_questions, 'a': ret_answers, 'token': ret_tokens, 'label': ret_labels, 'match_lv': ret_match_lv})
+        ret_match_lvs.extend(match_lv)
+        ret_ids.extend(ids)
+    ret_context = []
+    ret_offset_mapings = []
+    for tks in ret_tokens:
+        cur_offset = -1
+        offset_maping = []
+        for tk in tks:
+            offset_maping.append((cur_offset + 1, cur_offset + 1 + len(tk)))
+            cur_offset = cur_offset + 1 + len(tk)
+        ret_context.append(' '.join(tks))
+        ret_offset_mapings.append(offset_maping)
+    dataset = {
+        'question': ret_questions,
+        'context': ret_context,
+        'label': ret_labels,
+        'label_offset': ret_offset_mapings,
+        'id': ret_ids,
+        'answer': ret_answers,
+    }
+    # corpus_tmp = pd.DataFrame(
+    #     {'q': ret_questions, 'a': ret_answers, 'token': ret_tokens, 'label': ret_labels, 'match_lv': ret_match_lvs})
     if False:
         qa_all = pd.concat([r['qa_df'] for r in recipes]).sort_values(['cat_id', 'seq_id']).reset_index(drop=True)
         # test_parse_qa(qa_all)
         qa_all.to_csv(os.path.join(data_dir, 'qa_val.csv'), index=None, sep='\t', encoding='utf-8')
-    return corpus
+    return dataset
 
 
 if __name__ == "__main__":
-    corpus = data_process()
+    dataset = data_process('vali')
     print('END')
