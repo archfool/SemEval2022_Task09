@@ -11,37 +11,6 @@ import re
 from conllu import parse
 from init_config import src_dir, data_dir
 
-
-def parse_recipe_bak_211228():
-    data_val_dir = os.path.join(data_dir, 'val')
-
-    with open(os.path.join(data_val_dir, 'crl_srl.csv'), 'r', encoding='utf-8') as f:
-        line = f.readline()
-        while line:
-            # 跳过空行
-            if '' == line or '\n' == line:
-                line = f.readline()
-                continue
-
-            # 根据行首是否以#开始，决定以何种方式分列
-            if '#' == line[0]:
-                line = line.split(' ')
-            else:
-                line = line[0].split('\t')
-
-            # 以#开始的行
-            if '#' == line[0]:
-                pass
-            # 以数字开始的行
-            elif line[0].isdigit():
-                pass
-            # 其它类型
-            else:
-                print(line)
-            # 读取下一行
-            line = f.readline()
-
-
 """
 CONLL标注格式包含10列，分别为：
 ———————————————————————————
@@ -156,184 +125,6 @@ def parse_recipe(recipe):
     return new_recipe
 
 
-def test_parse_qa(qa_df):
-    for idx, qa_row in qa_df.iterrows():
-        if qa_row['question'].__contains__("How do you shell the peas in the bowl?"):
-            print(qa_row['question'])
-        print('{}\t{}'.format(qa_row['question'], qa_row['answer']), flush=True)
-        tmp = parse_qa(qa_row)
-
-
-def parse_qa_bak_220108(qa_row):
-    add_word = {}
-    question = qa_row['question']
-    answer = qa_row['answer']
-    cat_id = qa_row['cat_id']
-
-    # 采用什么方式回答问题。cat_0和cat_4的问题通过规则解答，其余类别的问题通过模型解答。
-    method = None
-    # 问题类别标签
-    tag = None
-    # 问题核心文本
-    key_str_q = None
-    # 答案核心文本
-    key_str_a = None
-    # 答案关键字
-    keyword_a = None
-
-    # cat_0：3类
-    # 统计操作次数
-    regex = re.match('How many actions does it take to process the (?P<keyword>.+)\?', question)
-    if regex:
-        assert regex.group(0) == question
-        assert cat_id == 0 or cat_id == 18
-        method = 'rule'
-        tag = 'count'
-        key_str_q = regex.group(1)
-        add_word[tag] = ''
-        return method, tag, key_str_q, key_str_a, keyword_a
-    # 工具使用次数
-    regex = re.match('How many times is the (?P<keyword>.+) used\?', question)
-    if regex:
-        assert regex.group(0) == question
-        assert cat_id == 0 or cat_id == 18
-        method = 'rule'
-        tag = 'count'
-        key_str_q = regex.group(1)
-        add_word[tag] = ''
-        return method, tag, key_str_q, key_str_a, keyword_a
-    # 食材使用个数
-    regex = re.match('How many (?P<keyword>.+) are used\?', question)
-    if regex:
-        assert regex.group(0) == question
-        assert cat_id == 0 or cat_id == 18
-        method = 'rule'
-        tag = 'count'
-        key_str_q = regex.group(1)
-        add_word[tag] = ''
-        return method, tag, key_str_q, key_str_a, keyword_a
-    assert cat_id != 0
-
-    # cat_4：1类
-    # 两个操作里，那个操作更早进行？
-    regex = re.match('(?P<keyword>.+), which comes first\?', question)
-    if regex:
-        assert regex.group(0) == question
-        assert cat_id == 4 or cat_id == 18
-        method = 'rule'
-        tag = 'act_first'
-        key_str_q = regex.group(1)
-        add_word[tag] = ''
-        # todo key_str_q = [x.strip().lower() for x in regex.group(1).split('and')]
-        return method, tag, key_str_q, key_str_a, keyword_a
-    assert cat_id != 4
-
-    # cat_1：1类
-    # 操作所涉及的食材是什么？
-    regex = re.match('What should be (?P<keyword>.+)\?', question)
-    if regex:
-        assert regex.group(0) == question
-        assert cat_id == 1 or cat_id == 18
-        method = 'model'
-        tag = 'act_ref_igdt'
-        key_str_q = regex.group(1)
-        add_word[tag] = 'the'
-        regex_a = re.match('(?:the )?(?P<keyword>.+)', answer)
-        key_str_a = regex_a.group(1)
-        keyword_a = [y.strip() for x in key_str_a.split('and') for y in x.split(',')]
-        return method, tag, key_str_q, key_str_a, keyword_a
-    assert cat_id != 1
-
-    # cat_2：2类
-    # 操作所涉及的场所是什么？
-    regex = re.match('Where should you (?P<keyword>.+)\?', question)
-    if regex:
-        assert regex.group(0) == question
-        assert cat_id == 2 or cat_id == 18
-        method = 'model'
-        tag = 'act_ref_place'
-        key_str_q = regex.group(1)
-        add_word[tag] = ''
-        key_str_a = answer
-        keyword_a = [y.strip() for x in key_str_a.split('and') for y in x.split(',')]
-        return method, tag, key_str_q, key_str_a, keyword_a
-    # 操作所涉及的工具是什么？
-    regex = re.match('How do you (?P<keyword>.+)\?', question)
-    if regex:
-        regex_a_1 = re.match('by hand', answer)
-        regex_a_2 = re.match('by using a (?P<keyword>.+)', answer)
-        if regex_a_1 or regex_a_2:
-            regex_a = regex_a_1 if regex_a_1 else regex_a_2
-            assert regex.group(0) == question
-            assert cat_id == 2 or cat_id == 18
-            method = 'model'
-            tag = 'act_ref_tool'
-            key_str_q = regex.group(1)
-            add_word[tag] = 'by|by using a'
-            key_str_a = answer
-            keyword_a = [y.strip() for x in key_str_a.split('and') for y in x.split(',')]
-            return method, tag, key_str_q, key_str_a, keyword_a
-    assert cat_id != 2
-
-    # cat_3：2类
-    # 某个容器里有什么？
-    regex = re.match('What\'s in the (?P<keyword>.+)\?', question)
-    if regex:
-        assert regex.group(0) == question
-        assert cat_id == 3 or cat_id == 18
-        method = 'model'
-        tag = 'in_container'
-        key_str_q = regex.group(1)
-        add_word[tag] = 'the'
-        regex_a = re.match('(?:the )?(?P<keyword>.+)', answer)
-        key_str_a = regex_a.group(1)
-        keyword_a = [y.strip() for x in key_str_a.split('and') for y in x.split(',')]
-        return method, tag, key_str_q, key_str_a, keyword_a
-    # 如何获得中间食材？
-    regex = re.match('How did you get the (?P<keyword>.+)\?', question)
-    if regex:
-        assert regex.group(0) == question
-        assert cat_id == 3 or cat_id == 18
-        method = 'model'
-        tag = 'get_middle_igdt'
-        key_str_q = regex.group(1)
-        add_word[tag] = 'by'
-        regex_a = re.match('by (?P<keyword>.+)', answer)
-        key_str_a = regex_a.group(1)
-        # todo keyword_a = [y.strip() for x in key_str_a.split('and') for y in x.split(',')]
-        keyword_a = [x.strip() for x in regex_a.group(1).split('and')]
-        return method, tag, key_str_q, key_str_a, keyword_a
-    assert cat_id != 3
-
-    # cat_5：1类
-    # 操作执行到什么程度？
-    regex = re.match('To what extent do you (?P<keyword>.+)\?', question)
-    if regex:
-        assert regex.group(0) == question
-        assert cat_id == 5 or cat_id == 18
-        method = 'model'
-        tag = 'act_extent'
-        key_str_q = regex.group(1)
-        add_word[tag] = 'until|till'
-        regex_a = re.match('(?:until )?(?:till )?(?P<keyword>.+)', answer)
-        key_str_a = regex_a.group(1)
-        # todo keyword_a = [y.strip() for x in key_str_a.split('and') for y in x.split(',')]
-        keyword_a = [x.strip() for x in regex_a.group(1).split('and')]
-        return method, tag, key_str_q, key_str_a, keyword_a
-    assert cat_id != 5
-
-    # cat_7的正则匹配，1类：操作执行多长时间？
-    # cat_8的正则匹配，1类：在哪里执行操作？ answer的句首大概率要加介词
-    # cat_11的正则匹配，1类：执行操作的原因？ answer的句首要加so
-    # cat_12的正则匹配，2类：同cat_8，在哪里执行操作？操作的食材是什么和什么？answer的句首要加with
-    regex = re.match('What do you (?P<keyword>.+) with\?', question)
-    # cat_15的正则匹配，1类：执行操作的原因？ answer的句首要加to
-    # cat_16的正则匹配，1类：执行操作的地方？ answer的句首大概率要加where
-    regex = re.match('From where do you (?P<keyword>.+) with\?', question)
-
-    return method, tag, key_str_q, key_str_a, keyword_a
-
-
 type_cat_id_dict = {
     'count': [0],
     'act_first': [4],
@@ -439,6 +230,19 @@ def parse_qa(qa_row):
     # key_str_a:答案核心文本
     # keyword_a:答案关键字
 
+    # cat_0：3类 统计操作次数，工具使用次数，食材使用个数
+    # cat_4：1类 两个操作里，那个操作更早进行？
+    # cat_1：1类 操作所涉及的食材是什么？
+    # cat_2：2类 操作所涉及的场所是什么？操作所涉及的工具是什么？
+    # cat_3：2类 某个容器里有什么？如何获得中间食材？
+    # cat_5：1类 操作执行到什么程度？
+    # cat_7：1类 操作执行多长时间？
+    # cat_8：1类 在哪里执行操作？ answer的句首大概率要加介词
+    # cat_11：1类 执行操作的原因？ answer的句首要加so
+    # cat_12：2类 同cat_8，在哪里执行操作？操作的食材是什么和什么？answer的句首要加with
+    # cat_15：1类 执行操作的原因？ answer的句首要加to
+    # cat_16：1类 执行操作的地方？ answer的句首大概率要加where
+
     # 遍历所有qa类型
     for qa_type, q_regex_patterns in type_q_regex_pattern_dict.items():
         # 遍历当前qa类型下的所有question正则模板
@@ -478,6 +282,14 @@ def parse_qa(qa_row):
     raise ValueError('出现了意料之外的QA模式')
 
 
+def inter_parse_qa_test(qa_df):
+    for idx, qa_row in qa_df.iterrows():
+        if qa_row['question'].__contains__("How do you shell the peas in the bowl?"):
+            print(qa_row['question'])
+        print('{}\t{}'.format(qa_row['question'], qa_row['answer']), flush=True)
+        tmp = parse_qa(qa_row)
+
+
 # 自动标注
 def auto_label(qas, ingredients, directions, recipe_id):
     ret_questions = []
@@ -508,7 +320,7 @@ def auto_label(qas, ingredients, directions, recipe_id):
                 ret_tokens.append(tokens)
                 ret_labels.append([0 for _ in tokens])
                 ret_match_lvs.append('no_answer')
-                ret_ids.append("{}-{}-{}".format(recipe_id, str(qa['cat_id']), str(qa['seq_id'])))
+                ret_ids.append("{}-{}".format(recipe_id, qa['question']))
                 continue
             # 答案文本完全匹配
             label_offsets = []
@@ -529,7 +341,7 @@ def auto_label(qas, ingredients, directions, recipe_id):
                 ret_tokens.append(tokens)
                 ret_labels.append(labels)
                 ret_match_lvs.append(match_lv)
-                ret_ids.append("{}-{}-{}".format(recipe_id, str(qa['cat_id']), str(qa['seq_id'])))
+                ret_ids.append("{}-{}".format(recipe_id, qa['question']))
                 continue
             # 答案核心文本部分匹配
             label_offsets = []
@@ -550,7 +362,7 @@ def auto_label(qas, ingredients, directions, recipe_id):
                 ret_tokens.append(tokens)
                 ret_labels.append(labels)
                 ret_match_lvs.append(match_lv)
-                ret_ids.append("{}-{}-{}".format(recipe_id, str(qa['cat_id']), str(qa['seq_id'])))
+                ret_ids.append("{}-{}".format(recipe_id, qa['question']))
                 continue
             # 答案关键词匹配
             label_offsets = []
@@ -572,7 +384,7 @@ def auto_label(qas, ingredients, directions, recipe_id):
                 ret_tokens.append(tokens)
                 ret_labels.append(labels)
                 ret_match_lvs.append(match_lv)
-                ret_ids.append("{}-{}-{}".format(recipe_id, str(qa['cat_id']), str(qa['seq_id'])))
+                ret_ids.append("{}-{}".format(recipe_id, qa['question']))
                 continue
             # 没匹配到答案
             ret_questions.append(qa['question'])
@@ -580,7 +392,7 @@ def auto_label(qas, ingredients, directions, recipe_id):
             ret_tokens.append(tokens)
             ret_labels.append([0 for _ in tokens])
             ret_match_lvs.append('cannot_match')
-            ret_ids.append("{}-{}-{}".format(recipe_id, str(qa['cat_id']), str(qa['seq_id'])))
+            ret_ids.append("{}-{}".format(recipe_id, qa['question']))
     return ret_questions, ret_answers, ret_tokens, ret_labels, ret_match_lvs, ret_ids
 
 
@@ -656,7 +468,7 @@ def data_process(dataset_name):
     #     {'q': ret_questions, 'a': ret_answers, 'token': ret_tokens, 'label': ret_labels, 'match_lv': ret_match_lvs})
     if False:
         qa_all = pd.concat([r['qa_df'] for r in recipes]).sort_values(['cat_id', 'seq_id']).reset_index(drop=True)
-        # test_parse_qa(qa_all)
+        # inter_parse_qa_test(qa_all)
         qa_all.to_csv(os.path.join(data_dir, 'qa_val.csv'), index=None, sep='\t', encoding='utf-8')
     return dataset
 
