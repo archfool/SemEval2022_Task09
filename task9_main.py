@@ -19,6 +19,7 @@ from util_model import ACT2FN
 
 if __name__ == "__main__":
     dataset_vali = data_process('vali')
+    dataset_vali = {key: value[:3] for key, value in dataset_vali.items()}
     dataset_vali = Dataset.from_dict(dataset_vali)
     datasets = {'train': dataset_vali, 'validation': dataset_vali, 'test': dataset_vali}
     extract_qa_manager(datasets)
