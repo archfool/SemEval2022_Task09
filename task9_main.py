@@ -18,9 +18,17 @@ from util_tools import logger
 from util_model import ACT2FN
 
 if __name__ == "__main__":
-    dataset_vali = data_process('vali')
-    dataset_vali = {key: value[:3] for key, value in dataset_vali.items()}
-    dataset_vali = Dataset.from_dict(dataset_vali)
-    datasets = {'train': dataset_vali, 'validation': dataset_vali, 'test': dataset_vali}
+    if os.path.exists(u'D:'):
+        dataset_vali = data_process('vali')
+        dataset_vali = {key: value[:1] for key, value in dataset_vali.items()}
+        dataset_vali = Dataset.from_dict(dataset_vali)
+        datasets = {'train': dataset_vali, 'validation': dataset_vali, 'test': dataset_vali}
+    else:
+        dataset_train = data_process('train')
+        dataset_train = Dataset.from_dict(dataset_train)
+        dataset_vali = data_process('vali')
+        dataset_vali = Dataset.from_dict(dataset_vali)
+        datasets = {'train': dataset_train, 'validation': dataset_vali, 'test': dataset_vali}
+
     extract_qa_manager(datasets)
     print('END')
