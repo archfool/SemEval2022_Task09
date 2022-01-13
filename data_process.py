@@ -337,7 +337,7 @@ def auto_label(qas, ingredients, directions, recipe_id):
                 continue
             # 答案文本完全匹配
             label_offsets = []
-            for tmp in re.finditer(qa['answer'].replace(' ', ''), text):
+            for tmp in re.finditer(qa['answer'].replace(' ', '').replace('(', '\(').replace(')', '\)'), text):
                 label_offsets.append(tmp.span())
             if len(label_offsets) > 0:
                 match_info = 'full'
@@ -361,7 +361,7 @@ def auto_label(qas, ingredients, directions, recipe_id):
                 continue
             # 答案核心文本部分匹配
             label_offsets = []
-            for tmp in re.finditer(qa['key_str_a'].replace(' ', ''), text):
+            for tmp in re.finditer(qa['key_str_a'].replace(' ', '').replace('(', '\(').replace(')', '\)'), text):
                 label_offsets.append(tmp.span())
             if len(label_offsets) > 0:
                 match_info = 'partial'
@@ -386,7 +386,7 @@ def auto_label(qas, ingredients, directions, recipe_id):
             # 答案关键词匹配
             label_offsets = []
             for keyword in qa['keyword_a']:
-                for tmp in re.finditer(keyword.replace(' ', ''), text):
+                for tmp in re.finditer(keyword.replace(' ', '').replace('(', '\(').replace(')', '\)'), text):
                     label_offsets.append(tmp.span())
             if len(label_offsets) > 0:
                 match_info = 'keywords'
@@ -458,7 +458,8 @@ def data_process(dataset_name):
     # 自动标注
     all_samples = []
     for recipe in recipes:
-        recipe_samples = auto_label(recipe['qa_df'], recipe['ingredient_dfs'], recipe['direction_dfs'], recipe['newdoc_id'])
+        recipe_samples = auto_label(recipe['qa_df'], recipe['ingredient_dfs'], recipe['direction_dfs'],
+                                    recipe['newdoc_id'])
         all_samples += recipe_samples
         # ret_questions.extend(questions)
         # ret_answers.extend(answers)
