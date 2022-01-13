@@ -290,135 +290,158 @@ def inter_parse_qa_test(qa_df):
         tmp = parse_qa(qa_row)
 
 
+# 标注一条QA样本
+def label_single_qa_sample(qa, recipe, sample):
+    ingredients = recipe['ingredient_dfs']
+    directions = recipe['direction_dfs']
+
+    # 走规则模型
+    if qa['type'] in ['count', 'act_first']:
+        # todo 不标注
+        return None
+
+    # 拼接食材清单文本，拼接操作步骤文本。拼接后的文本，剔除了所有空格。
+    ingredient_tokens = [token for df in ingredients for token in df['form'].tolist()]
+    direction_tokens = [token for df in directions for token in df['form'].tolist()]
+    tokens = ingredient_tokens + direction_tokens
+    sample['tokens'] = tokens
+    text = ''.join(tokens).replace(' ', '')
+    # 计算token在文本中的位置偏置（删除了所有空格后的文本）
+    offsets = []
+    cur_offset = 0
+    for token in tokens:
+        offsets.append((cur_offset, cur_offset + len(token.replace(' ', ''))))
+        cur_offset = offsets[-1][1]
+
+    # 无答案
+    if 'N/A' == qa['answer']:
+        match_info = 'no_answer'
+        sample['label'] = [0 for _ in tokens]
+        sample['match_info'] = match_info
+        return sample
+
+    # 答案文本完全匹配
+    label_offsets = []
+    answer = qa['answer'].replace(' ', '').replace('(', '\(').replace(')', '\)')
+    for tmp in re.finditer(answer, text):
+        label_offsets.append(tmp.span())
+    if len(label_offsets) > 0:
+        if len(label_offsets) == 1:
+            match_info = 'full'
+        else:
+            # todo 要找到最合适的span，进行标注
+            match_info = 'full_duplicate'
+        labels = []
+        for offset in offsets:
+            label = 0
+            for label_offset in label_offsets:
+                if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
+                    label = 1
+                    continue
+            labels.append(label)
+        sample['label'] = labels
+        sample['match_info'] = match_info
+        return sample
+
+    # 答案文本部分匹配
+    label_offsets = []
+    answer = qa['key_str_a'].replace(' ', '').replace('(', '\(').replace(')', '\)')
+    for tmp in re.finditer(answer, text):
+        label_offsets.append(tmp.span())
+    if len(label_offsets) > 0:
+        if len(label_offsets) == 1:
+            match_info = 'partial'
+        else:
+            # todo 要找到最合适的span，进行标注
+            match_info = 'partial_duplicate'
+        labels = []
+        for offset in offsets:
+            label = 0
+            for label_offset in label_offsets:
+                if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
+                    label = 1
+                    continue
+            labels.append(label)
+        sample['label'] = labels
+        sample['match_info'] = match_info
+        return sample
+
+    # 答案关键词匹配
+    label_offsets = []
+    for keyword in qa['keyword_a']:
+        kw = keyword.replace(' ', '').replace('(', '\(').replace(')', '\)')
+        for tmp in re.finditer(kw, text):
+            label_offsets.append(tmp.span())
+    if len(label_offsets) > 0:
+        match_info = 'keywords'
+        # todo 聚合靠得近的关键词
+        labels = []
+        for offset in offsets:
+            label = 0
+            for label_offset in label_offsets:
+                if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
+                    label = 1
+                    continue
+            labels.append(label)
+        sample['label'] = labels
+        sample['match_info'] = match_info
+        return sample
+
+    # 没匹配到答案
+    match_info = 'cannot_match'
+    sample['label'] = [0 for _ in tokens]
+    sample['match_info'] = match_info
+
+
 # 自动标注
-def auto_label(qas, ingredients, directions, recipe_id):
+def auto_label(recipe):
+    # 判断对于同一个菜谱，是否存在同样问句
+    assert len(recipe['qa_df']) == len(recipe['qa_df']['question'].drop_duplicates())
+
     samples = []
-    # ret_questions = []
-    # ret_answers = []
-    # ret_tokens = []
-    # ret_labels = []
-    # ret_match_infos = []
-    # ret_ids = []
-    # todo 同一个菜谱，是否存在同样问句？
-    for idx, qa in qas.iterrows():
+    for idx, qa in recipe['qa_df'].iterrows():
         sample = {
-            'id': "{}-{}".format(recipe_id, qa['question']),
+            'id': "{}-{}".format(recipe['newdoc_id'], qa['question']),
             'question': qa['question'],
             'answer': qa['answer'],
+            'context': None,
+            'tokens': None,
+            'label': None,
+            'offset_maping': None,
             'cat_id': qa['cat_id'],
             'type': qa['type'],
+            'match_info': None,
         }
-        if qa['type'] in ['count', 'act_first']:
-            # todo 不标注
-            continue
-        else:
-            # 处理文本：拼接，计算位置
-            ingredient_tokens = [token for df in ingredients for token in df['form'].tolist()]
-            direction_tokens = [token for df in directions for token in df['form'].tolist()]
-            tokens = ingredient_tokens + direction_tokens
-            offsets = []
-            cur_offset = 0
-            for token in tokens:
-                offsets.append((cur_offset, cur_offset + len(token.replace(' ', ''))))
-                cur_offset = offsets[-1][1]
-            text = ''.join(tokens).replace(' ', '')
-            sample['tokens'] = tokens
-            # 无答案
-            if 'N/A' == qa['answer']:
-                sample['label'] = [0 for _ in tokens]
-                sample['match_info'] = 'no_answer'
-                samples.append(sample)
-                # ret_questions.append(qa['question'])
-                # ret_answers.append(qa['answer'])
-                # ret_tokens.append(tokens)
-                # ret_labels.append([0 for _ in tokens])
-                # ret_match_infos.append('no_answer')
-                # ret_ids.append("{}-{}".format(recipe_id, qa['question']))
-                continue
-            # 答案文本完全匹配
-            label_offsets = []
-            for tmp in re.finditer(qa['answer'].replace(' ', '').replace('(', '\(').replace(')', '\)'), text):
-                label_offsets.append(tmp.span())
-            if len(label_offsets) > 0:
-                match_info = 'full'
-                labels = []
-                for offset in offsets:
-                    label = 0
-                    for label_offset in label_offsets:
-                        if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
-                            label = 1
-                            continue
-                    labels.append(label)
-                sample['label'] = labels
-                sample['match_info'] = match_info
-                samples.append(sample)
-                # ret_questions.append(qa['question'])
-                # ret_answers.append(qa['answer'])
-                # ret_tokens.append(tokens)
-                # ret_labels.append(labels)
-                # ret_match_infos.append(match_info)
-                # ret_ids.append("{}-{}".format(recipe_id, qa['question']))
-                continue
-            # 答案核心文本部分匹配
-            label_offsets = []
-            for tmp in re.finditer(qa['key_str_a'].replace(' ', '').replace('(', '\(').replace(')', '\)'), text):
-                label_offsets.append(tmp.span())
-            if len(label_offsets) > 0:
-                match_info = 'partial'
-                labels = []
-                for offset in offsets:
-                    label = 0
-                    for label_offset in label_offsets:
-                        if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
-                            label = 1
-                            continue
-                    labels.append(label)
-                sample['label'] = labels
-                sample['match_info'] = match_info
-                samples.append(sample)
-                # ret_questions.append(qa['question'])
-                # ret_answers.append(qa['answer'])
-                # ret_tokens.append(tokens)
-                # ret_labels.append(labels)
-                # ret_match_infos.append(match_info)
-                # ret_ids.append("{}-{}".format(recipe_id, qa['question']))
-                continue
-            # 答案关键词匹配
-            label_offsets = []
-            for keyword in qa['keyword_a']:
-                for tmp in re.finditer(keyword.replace(' ', '').replace('(', '\(').replace(')', '\)'), text):
-                    label_offsets.append(tmp.span())
-            if len(label_offsets) > 0:
-                match_info = 'keywords'
-                labels = []
-                for offset in offsets:
-                    label = 0
-                    for label_offset in label_offsets:
-                        if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
-                            label = 1
-                            continue
-                    labels.append(label)
-                sample['label'] = labels
-                sample['match_info'] = match_info
-                samples.append(sample)
-                # ret_questions.append(qa['question'])
-                # ret_answers.append(qa['answer'])
-                # ret_tokens.append(tokens)
-                # ret_labels.append(labels)
-                # ret_match_infos.append(match_info)
-                # ret_ids.append("{}-{}".format(recipe_id, qa['question']))
-                continue
-            # 没匹配到答案
-            sample['label'] = [0 for _ in tokens]
-            sample['match_info'] = 'cannot_match'
+        sample = label_single_qa_sample(qa, recipe, sample)
+        if sample is not None:
             samples.append(sample)
-            # ret_questions.append(qa['question'])
-            # ret_answers.append(qa['answer'])
-            # ret_tokens.append(tokens)
-            # ret_labels.append([0 for _ in tokens])
-            # ret_match_infos.append('cannot_match')
-            # ret_ids.append("{}-{}".format(recipe_id, qa['question']))
     return samples
+
+
+# 菜谱信息分析
+def recipe_analyze(recipes, mode):
+    if False == mode:
+        return
+
+    ingredient_all = pd.concat([df for recipe in recipes.values() for df in recipe['ingredient_dfs']])
+    for col in ['xpos', 'feats', 'head', 'deps', 'misc']:
+        print("======{}======".format(col))
+        print(ingredient_all[~pd.isna(ingredient_all[col])])
+    for col in ['deprel']:
+        print("======{}======".format(col))
+        print(ingredient_all[ingredient_all[col] != '_'])
+
+    direction_all = pd.concat([df for recipe in recipes.values() for df in recipe['direction_dfs']])
+    for col in ['head']:
+        print("======{}======".format(col))
+        print(direction_all[~pd.isna(direction_all[col])])
+    # xpos: EVENT, EXPLICITINGREDIENT, IMPLICITINGREDIENT, HABITAT, TOOL
+    a = direction_all[~pd.isna(direction_all['feats'])]
+    # deprel: Drop, Habitat, Tool, Result, Shadow
+    dep = [dep for deps in direction_all[direction_all['deprel'] != '_']['deprel'].to_list() for dep in deps.split('|')]
+    pd.Series([d.split('=')[0] for d in dep]).value_counts()
+    c = direction_all[['form', 'deps']]
+    d = direction_all[~pd.isna(direction_all['misc'])][['form', 'misc']]
 
 
 def data_process(dataset_name):
@@ -444,31 +467,19 @@ def data_process(dataset_name):
 
     # 读取菜单
     recipes = []
-    for recipe in data:
-        recipes.append(parse_recipe(recipe))
-        # for sent in recipe:
-        #     for token in sent:
-        #         if 10 != len(token):
-        #             print(token)
-        # auto_label(recipes[-1]['ingredient_dfs'], recipes[-1]['direction_dfs'], recipes[-1]['qa_df'])
+    for d in data:
+        recipe = parse_recipe(d)
+        recipes.append(recipe)
+    recipes = {recipe['newdoc_id']: recipe for recipe in recipes}
 
-    if False:
-        ingredient_all = pd.concat([df for r in recipes for df in r['ingredient_dfs']])
-        direction_all = pd.concat([df for r in recipes for df in r['direction_dfs']])
+    # 分析材料清单和操作步骤的额外信息
+    recipe_analyze(recipes, True)
+
     # 自动标注
     all_samples = []
-    for recipe in recipes:
-        recipe_samples = auto_label(recipe['qa_df'], recipe['ingredient_dfs'], recipe['direction_dfs'],
-                                    recipe['newdoc_id'])
+    for recipe_id, recipe in recipes.items():
+        recipe_samples = auto_label(recipe)
         all_samples += recipe_samples
-        # ret_questions.extend(questions)
-        # ret_answers.extend(answers)
-        # ret_tokens.extend(tokens)
-        # ret_labels.extend(labels)
-        # ret_match_infos.extend(match_info)
-        # ret_ids.extend(ids)
-    # ret_context = []
-    # ret_offset_mapings = []
     for sample in all_samples:
         tks = sample['tokens']
         cur_offset = -1
@@ -478,9 +489,14 @@ def data_process(dataset_name):
             cur_offset = cur_offset + 1 + len(tk)
         sample['context'] = ' '.join(tks)
         sample['offset_maping'] = offset_maping
-        # ret_context.append(' '.join(tks))
-        # ret_offset_mapings.append(offset_maping)
     data_df = pd.DataFrame(all_samples)
+    if False:
+        data_df['len'] = data_df['tokens'].apply(len)
+        for qa_type, tmp_df in data_df.groupby(['type']):
+            print(qa_type)
+            print(tmp_df['match_info'].value_counts(dropna=False))
+            print("")
+            a = data_df[data_df['type'] == 'full_act']
     dataset = {
         'question': data_df['question'].to_list(),
         'context': data_df['context'].to_list(),
@@ -489,8 +505,6 @@ def data_process(dataset_name):
         'id': data_df['id'].to_list(),
         'answer': data_df['answer'].to_list(),
     }
-    # corpus_tmp = pd.DataFrame(
-    #     {'q': ret_questions, 'a': ret_answers, 'token': ret_tokens, 'label': ret_labels, 'match_info': ret_match_infos})
     if False:
         qa_all = pd.concat([r['qa_df'] for r in recipes]).sort_values(['cat_id', 'seq_id']).reset_index(drop=True)
         # inter_parse_qa_test(qa_all)
