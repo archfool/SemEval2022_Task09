@@ -1,6 +1,7 @@
 python task9_main.py \
---model_name_or_path D:\data\huggingface\bert-base-uncased \
---output_dir D:\data\tmp\qa \
+--model_name_or_path /media/archfool/data/data/huggingface/bert-base-uncased/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/tmp/ \
+--dataset_name squad \
 --do_train \
 --do_eval \
 --per_device_train_batch_size 2 \
