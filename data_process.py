@@ -31,6 +31,7 @@ ID   FORM    LEMMA   CPOSTAG POSTAG  FEATS   HEAD    DEPREL  PHEAD   PDEPREL
 """
 
 """
+SemEval2022_Task9的CONLL标注格式
 1.ID: Word index, integer starting at 1 for each new sentence; .
 2.FORM: Word form or punctuation symbol.
 3.LEMMA: Lemma of word form.
@@ -43,13 +44,6 @@ ID   FORM    LEMMA   CPOSTAG POSTAG  FEATS   HEAD    DEPREL  PHEAD   PDEPREL
 10.PREDICATE: The sense of the word that is annotated as a predicate.
 11.ARG1: The arguments of the first predicate in current sentence.
 12-20. ARGX: The arguments of the X-th predicate in current sentence.
-"""
-
-"""
-We adopt the concept of "question families" as outlined in the CLEVR dataset (Johnson et al., 2017). While some 
-question families naturally transfer over from the VQA domain (e.g., integer comparison, counting), other concepts 
-such as ellipsis and object lifespan must be employed to cover the full extent of competency within procedural 
-texts.
 """
 
 
@@ -71,12 +65,12 @@ def parse_recipe(recipe):
         q_id = q_key.split(' ')[1]
         a_id = a_key.split(' ')[1]
         assert q_id == a_id
-        cat_id, seq_id = q_id.split('-')
-        qa_list.append((cat_id, seq_id, q_value, a_value))
-    qa_df = pd.DataFrame(qa_list, columns=['cat_id', 'seq_id', 'question', 'answer'])
-    qa_df['cat_id'] = qa_df['cat_id'].astype(int)
+        family_id, seq_id = q_id.split('-')
+        qa_list.append((family_id, seq_id, q_value, a_value))
+    qa_df = pd.DataFrame(qa_list, columns=['family_id', 'seq_id', 'question', 'answer'])
+    qa_df['family_id'] = qa_df['family_id'].astype(int)
     qa_df['seq_id'] = qa_df['seq_id'].astype(int)
-    qa_df = qa_df.sort_values(['cat_id', 'seq_id']).reset_index(drop=True)
+    qa_df = qa_df.sort_values(['family_id', 'seq_id']).reset_index(drop=True)
     qa_df['answer'] = qa_df['answer'].apply(lambda x: x.lstrip())
     qa_df[['question', 'answer', 'method', 'type', 'key_str_q', 'key_str_a', 'keyword_a']] \
         = qa_df.apply(parse_qa, axis=1, result_type="expand")
@@ -108,6 +102,7 @@ def parse_recipe(recipe):
     direction_dfs = [pd.DataFrame([x for x in direction]) for direction in directions]
     for tmp_dfs in [ingredient_dfs, direction_dfs]:
         for tmp_df in tmp_dfs:
+            # assert 10 == len(tmp_df.columns)
             tmp_df['form'] = tmp_df['form'].apply(lambda x: x.strip())
             tmp_df['lemma'] = tmp_df['lemma'].apply(lambda x: x.strip())
     # 原始菜谱的文本长度
@@ -125,7 +120,7 @@ def parse_recipe(recipe):
     return new_recipe
 
 
-type_cat_id_dict = {
+type_family_id_dict = {
     'count': [0],
     'act_first': [4],
     'act_ref_igdt': [1],
@@ -222,7 +217,7 @@ type_sep_dict = {
 def parse_qa(qa_row):
     question = qa_row['question'].replace(r'\"', "").lstrip()
     answer = qa_row['answer'].replace(r'\"', "").lstrip()
-    cat_id = qa_row['cat_id']
+    family_id = qa_row['family_id']
 
     # method:采用什么方式回答问题。cat_0和cat_4的问题通过规则解答，其余类别的问题通过模型解答。
     # type:问答类别标签
@@ -252,7 +247,7 @@ def parse_qa(qa_row):
             if regex_q:
                 # 判断answer是不是NA
                 if 'N/A' == answer:
-                    assert cat_id == 18
+                    assert family_id == 18
                     method = 'no_answer'
                     type = 'no_answer'
                     key_str_q = regex_q.group(1)
@@ -270,16 +265,28 @@ def parse_qa(qa_row):
                             method = 'model'
                         type = qa_type
                         assert regex_q.group(0) == question
-                        assert cat_id in type_cat_id_dict[qa_type]
+                        assert family_id in type_family_id_dict[qa_type]
                         key_str_q = regex_q.group(1)
                         key_str_a = regex_a.group(1)
                         keyword_a = [key_str_a]
                         for sep in type_sep_dict[qa_type]:
                             keyword_a = [y.strip() for x in keyword_a for y in x.split(sep)]
                         return question, answer, method, type, key_str_q, key_str_a, keyword_a
-    # assert cat_id > 17
+    # assert family_id > 17
     print(qa_row, flush=True)
     raise ValueError('出现了意料之外的QA模式')
+
+
+def get_keywords(str_list, seps, stopwords=[], puncts=[]):
+    keywords = str_list
+    for punct in puncts:
+        keywords = [kw.replace(punct, '') for kw in keywords]
+
+    for sep in seps:
+        keywords = [y.strip() for x in keywords for y in x.split(sep)]
+        keywords = [kw for kw in keywords if kw not in stopwords]
+
+    return keywords
 
 
 def inter_parse_qa_test(qa_df):
@@ -288,6 +295,134 @@ def inter_parse_qa_test(qa_df):
             print(qa_row['question'])
         print('{}\t{}'.format(qa_row['question'], qa_row['answer']), flush=True)
         tmp = parse_qa(qa_row)
+
+
+# 根据隐藏角色信息，重写文本。
+def expand_hidden_role(directions, ingredients):
+    def join_role_items(role_items, upos_map, entity):
+        role_items_plus = []
+        # 标记upos和entity属性
+        for role_item in role_items:
+            role_item = [[token, upos_map.get(token, 'NOUN'), 'I-' + entity] for token in role_item]
+            role_item[0][2] = 'B-' + entity
+            role_items_plus.append(role_item)
+        # 添加连接词
+        if 1 == len(role_items_plus):
+            new_role_items = role_items_plus[0]
+        else:
+            new_role_items = []
+            for idx in range(len(role_items_plus) - 1):
+                new_role_items += role_items[idx]
+                new_role_items.append([',', 'PUNCT', 'O'])
+            new_role_items.append(['and', 'CCONJ', 'O'])
+            new_role_items += role_items[idx + 1]
+        return new_role_items
+
+    upos_map = pd.concat([x for x in ingredients + directions]).set_index(['form'])['upos'].to_dict()
+    directions_new = []
+    for direction in directions:
+        direction_new = []
+        # 遍历所有token
+        for idx, row in direction.iterrows():
+            if '_' == row['hidden']:
+                direction_new.append(pd.DataFrame([row.to_dict()], columns=direction.columns))
+            else:
+                tokens = [pd.DataFrame([row.to_dict()], columns=direction.columns)]
+                hidden_roles = row['hidden'].split('|')
+                # 遍历所有角色
+                for role in hidden_roles:
+                    # 提取角色名和角色元素
+                    role_name, role_items = role.split('=')
+                    role_items = [item.split('.')[0].split('_') for item in role_items.split('|')]
+                    # Drop, Habitat, Tool, Result, Shadow
+                    # 根据不同角色，添加不同的文本
+                    if 'Result' == role_name:
+                        add_tokens = join_role_items(role_items, upos_map, entity='INGREDIENT')
+                        add_tokens = [['to', 'PART', 'O'], ['get', 'VERB', 'O']] \
+                                     + add_tokens \
+                                     + [[',', 'PUNCT', 'O']]
+                        add_tokens_df_data = {
+                            'id': [-1 for _ in add_tokens],
+                            'form': [x[0] for x in add_tokens],
+                            'lemma': [x[0] for x in add_tokens],
+                            'upos': [x[1] for x in add_tokens],
+                            'entity': [x[2] for x in add_tokens],
+                        }
+                        add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
+                        tokens = [add_tokens_df] + tokens
+                    elif 'Habitat' == role_name:
+                        add_tokens = join_role_items(role_items, upos_map, entity='HABITAT')
+                        add_tokens = [[',', 'PUNCT', 'O'], ['in', 'ADP', 'O']] \
+                                     + add_tokens \
+                                     + [[',', 'PUNCT', 'O']]
+                        add_tokens_df_data = {
+                            'id': [-1 for _ in add_tokens],
+                            'form': [x[0] for x in add_tokens],
+                            'lemma': [x[0] for x in add_tokens],
+                            'upos': [x[1] for x in add_tokens],
+                            'entity': [x[2] for x in add_tokens],
+                        }
+                        add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
+                        tokens = tokens + [add_tokens_df]
+                        continue
+                    elif 'Tool' == role_name:
+                        add_tokens = join_role_items(role_items, upos_map, entity='TOOL')
+                        if add_tokens[0][0] in ['hand', 'hands']:
+                            add_tokens[0][0] = 'hand'
+                            add_tokens = [[',', 'PUNCT', 'O'], ['by', 'ADP', 'O']] \
+                                         + add_tokens \
+                                         + [[',', 'PUNCT', 'O']]
+                        else:
+                            add_tokens = [[',', 'PUNCT', 'O'], ['by', 'ADP', 'O'], ['using', 'VERB', 'O'],
+                                          ['a', 'DET', 'O']] \
+                                         + add_tokens \
+                                         + [[',', 'PUNCT', 'O']]
+                        add_tokens_df_data = {
+                            'id': [-1 for _ in add_tokens],
+                            'form': [x[0] for x in add_tokens],
+                            'lemma': [x[0] for x in add_tokens],
+                            'upos': [x[1] for x in add_tokens],
+                            'entity': [x[2] for x in add_tokens],
+                        }
+                        add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
+                        tokens = tokens + [add_tokens_df]
+                        continue
+                    elif 'Drop' == role_name:
+                        add_tokens = join_role_items(role_items, upos_map, entity='INGREDIENT')
+                        add_tokens = [['the', 'DET', 'O']] \
+                                     + add_tokens \
+                                     + [[',', 'PUNCT', 'O']]
+                        add_tokens_df_data = {
+                            'id': [-1 for _ in add_tokens],
+                            'form': [x[0] for x in add_tokens],
+                            'lemma': [x[0] for x in add_tokens],
+                            'upos': [x[1] for x in add_tokens],
+                            'entity': [x[2] for x in add_tokens],
+                        }
+                        add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
+                        tokens = tokens + [add_tokens_df]
+                        continue
+                    elif 'Shadow' == role_name:
+                        add_tokens = join_role_items(role_items, upos_map, entity='INGREDIENT')
+                        add_tokens = [['the', 'DET', 'O']] \
+                                     + add_tokens \
+                                     + [[',', 'PUNCT', 'O']]
+                        add_tokens_df_data = {
+                            'id': [-1 for _ in add_tokens],
+                            'form': [x[0] for x in add_tokens],
+                            'lemma': [x[0] for x in add_tokens],
+                            'upos': [x[1] for x in add_tokens],
+                            'entity': [x[2] for x in add_tokens],
+                        }
+                        add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
+                        tokens = tokens + [add_tokens_df]
+                        continue
+                    else:
+                        raise ValueError('出现了意料之外的Hidden Role')
+
+                direction_new += tokens
+        directions_new.append(pd.concat(direction_new))
+    return directions_new
 
 
 # 标注一条QA样本
@@ -299,6 +434,8 @@ def label_single_qa_sample(qa, recipe, sample):
     if qa['type'] in ['count', 'act_first']:
         # todo 不标注
         return None
+    elif 'act_ref_place' == qa['type']:
+        new_directions = expand_hidden_role(directions, ingredients)
 
     # 拼接食材清单文本，拼接操作步骤文本。拼接后的文本，剔除了所有空格。
     ingredient_tokens = [token for df in ingredients for token in df['form'].tolist()]
@@ -391,12 +528,13 @@ def label_single_qa_sample(qa, recipe, sample):
     match_info = 'cannot_match'
     sample['label'] = [0 for _ in tokens]
     sample['match_info'] = match_info
+    return sample
 
 
 # 自动标注
 def auto_label(recipe):
-    # 判断对于同一个菜谱，是否存在同样问句
-    assert len(recipe['qa_df']) == len(recipe['qa_df']['question'].drop_duplicates())
+    # todo 判断对于同一个菜谱，是否存在同样问句
+    # assert len(recipe['qa_df']) == len(recipe['qa_df']['question'].drop_duplicates())
 
     samples = []
     for idx, qa in recipe['qa_df'].iterrows():
@@ -408,12 +546,22 @@ def auto_label(recipe):
             'tokens': None,
             'label': None,
             'offset_maping': None,
-            'cat_id': qa['cat_id'],
+            'family_id': qa['family_id'],
             'type': qa['type'],
             'match_info': None,
         }
         sample = label_single_qa_sample(qa, recipe, sample)
         if sample is not None:
+            if sample['tokens'] is not None:
+                tks = sample['tokens']
+                cur_offset = -1
+                offset_maping = []
+                for tk in tks:
+                    offset_maping.append((cur_offset + 1, cur_offset + 1 + len(tk)))
+                    cur_offset = cur_offset + 1 + len(tk)
+                sample['context'] = ' '.join(tks)
+                sample['offset_maping'] = offset_maping
+
             samples.append(sample)
     return samples
 
@@ -423,33 +571,79 @@ def recipe_analyze(recipes, mode):
     if False == mode:
         return
 
+    # todo useful_cols: upos
     ingredient_all = pd.concat([df for recipe in recipes.values() for df in recipe['ingredient_dfs']])
-    for col in ['xpos', 'feats', 'head', 'deps', 'misc']:
+    for col in ['entity', 'part1', 'part2', 'hidden', 'coref', 'predicate']:
         print("======{}======".format(col))
-        print(ingredient_all[~pd.isna(ingredient_all[col])])
-    for col in ['deprel']:
+        print(ingredient_all[ingredient_all[col] != '_'][ingredient_all.columns[:10]])
+    for col in ['arg{}'.format(str(i)) for i in range(1, 11)]:
         print("======{}======".format(col))
-        print(ingredient_all[ingredient_all[col] != '_'])
+        print(ingredient_all[ingredient_all[col] != '_'][col].value_counts())
 
+    # todo useful_cols: upos, entity, hidden, coref
     direction_all = pd.concat([df for recipe in recipes.values() for df in recipe['direction_dfs']])
-    for col in ['head']:
+    for col in ['part1', 'part2', 'predicate']:
         print("======{}======".format(col))
-        print(direction_all[~pd.isna(direction_all[col])])
-    # xpos: EVENT, EXPLICITINGREDIENT, IMPLICITINGREDIENT, HABITAT, TOOL
-    a = direction_all[~pd.isna(direction_all['feats'])]
-    # deprel: Drop, Habitat, Tool, Result, Shadow
-    dep = [dep for deps in direction_all[direction_all['deprel'] != '_']['deprel'].to_list() for dep in deps.split('|')]
-    pd.Series([d.split('=')[0] for d in dep]).value_counts()
-    c = direction_all[['form', 'deps']]
-    d = direction_all[~pd.isna(direction_all['misc'])][['form', 'misc']]
+        print(direction_all[direction_all[col] != '_'][['form', 'part1', 'part2', 'coref', 'predicate']])
+    for col in ['arg{}'.format(str(i)) for i in range(1, 11)]:
+        print("======{}======".format(col))
+        print(direction_all[direction_all[col] != '_'][col].value_counts())
+    # entity: EVENT, EXPLICITINGREDIENT, IMPLICITINGREDIENT, HABITAT, TOOL
+    a = direction_all[direction_all['part1'] != '_']
+    # hidden: Drop, Habitat, Tool, Result, Shadow
+    hid = [dep for deps in direction_all[direction_all['hidden'] != '_']['hidden'].to_list() for dep in deps.split('|')]
+    b = pd.DataFrame([(h.split('=')[0], len(h.split('=')[1].split(':')), h.split('=')[1].split('.')[0]) for h in hid],
+                     columns=['hid', 'cnt', 'first'])
+    for val in b['hid'].unique().tolist():
+        print("==={}===".format(val))
+        print(b[b['hid'] == val]['cnt'].value_counts())
+    pd.Series([d.split('=')[0] for d in hid]).value_counts()
+    c = direction_all[['form', 'coref']]
+    d = direction_all[direction_all['predicate'] != '_'][['form', 'predicate']]
+    direction_all[direction_all['upos'] == 'PUNCT']['form'].value_counts(normalize=True)
+
+
+# QA样本信息分析
+def qa_analyze(qa_data_df, recipes, mode):
+    if False == mode:
+        return
+
+    qa_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
+
+    type = 'act_ref_place'
+    case = qa_all[qa_all['type'] == type]
+    case['the'] = case['key_str_q'].apply(lambda x: x.split(' ')[1])
+    case = case[case['the'] != 'the']
+    case2 = qa_data_df[qa_data_df['type'] == type][['id', 'question', 'answer', 'match_info']]
+
+    case['key_str_q'].apply(
+        lambda x: get_keywords([x], seps=[' ', 'and'], stopwords=['', 'the', 'with'], puncts=['.', ',', ';']))
+
+    qa_data_df['len'] = qa_data_df['tokens'].apply(len)
+
+    for qa_type, tmp_df in qa_data_df.groupby(['type']):
+        print("==={}===".format(qa_type))
+        print(tmp_df['match_info'].value_counts(dropna=False))
+
+    case = qa_data_df
+    case = case[case['type'] == 'act_ref_place']
+    case = case[case['match_info'] == 'cannot_match']
+    idx = 222
+    recipe_id = '-'.join(case['id'].loc[idx].split('-')[:2])
+    question = case['question'].loc[idx]
+    recipe = recipes[recipe_id]
+    direction = pd.concat([df for df in recipe['direction_dfs']])
+
+    pass
 
 
 def data_process(dataset_name):
     data_train_dir = os.path.join(data_dir, 'train')
     data_vali_dir = os.path.join(data_dir, 'val')
     data_test_dir = os.path.join(data_dir, 'test')
-    # fields = ['id', 'from', 'lemma', 'upos', 'entity', 'part', 'hidden', 'coref', 'predicate', 'arg1']
-    fields = None
+    fields = ['id', 'form', 'lemma', 'upos', 'entity', 'part1', 'part2', 'hidden', 'coref', 'predicate',
+              'arg1', 'arg2', 'arg3', 'arg4', 'arg5', 'arg6', 'arg7', 'arg8', 'arg9', 'arg10']
+    # fields = None
 
     # for file in os.listdir(data_val_dir):
     #     print(file)
@@ -473,30 +667,18 @@ def data_process(dataset_name):
     recipes = {recipe['newdoc_id']: recipe for recipe in recipes}
 
     # 分析材料清单和操作步骤的额外信息
-    recipe_analyze(recipes, True)
+    recipe_analyze(recipes, False)
 
     # 自动标注
     all_samples = []
     for recipe_id, recipe in recipes.items():
-        recipe_samples = auto_label(recipe)
-        all_samples += recipe_samples
-    for sample in all_samples:
-        tks = sample['tokens']
-        cur_offset = -1
-        offset_maping = []
-        for tk in tks:
-            offset_maping.append((cur_offset + 1, cur_offset + 1 + len(tk)))
-            cur_offset = cur_offset + 1 + len(tk)
-        sample['context'] = ' '.join(tks)
-        sample['offset_maping'] = offset_maping
+        single_recipe_qa_samples = auto_label(recipe)
+        all_samples += single_recipe_qa_samples
     data_df = pd.DataFrame(all_samples)
-    if False:
-        data_df['len'] = data_df['tokens'].apply(len)
-        for qa_type, tmp_df in data_df.groupby(['type']):
-            print(qa_type)
-            print(tmp_df['match_info'].value_counts(dropna=False))
-            print("")
-            a = data_df[data_df['type'] == 'full_act']
+
+    # 分析自动标注数据
+    qa_analyze(data_df, recipes, True)
+
     dataset = {
         'question': data_df['question'].to_list(),
         'context': data_df['context'].to_list(),
@@ -506,7 +688,7 @@ def data_process(dataset_name):
         'answer': data_df['answer'].to_list(),
     }
     if False:
-        qa_all = pd.concat([r['qa_df'] for r in recipes]).sort_values(['cat_id', 'seq_id']).reset_index(drop=True)
+        qa_all = pd.concat([r['qa_df'] for r in recipes]).sort_values(['family_id', 'seq_id']).reset_index(drop=True)
         # inter_parse_qa_test(qa_all)
         qa_all.to_csv(os.path.join(data_dir, 'qa_val.csv'), index=None, sep='\t', encoding='utf-8')
     return dataset
