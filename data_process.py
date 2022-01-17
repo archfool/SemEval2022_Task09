@@ -9,7 +9,10 @@ import pandas as pd
 import numpy as np
 import re
 from conllu import parse
+import nltk.stem as ns
 from init_config import src_dir, data_dir
+
+lemmatizer = ns.WordNetLemmatizer()
 
 """
 CONLL标注格式包含10列，分别为：
@@ -100,11 +103,12 @@ def parse_recipe(recipe):
             directions.append(sent)
     ingredient_dfs = [pd.DataFrame([x for x in ingredient]) for ingredient in ingredients]
     direction_dfs = [pd.DataFrame([x for x in direction]) for direction in directions]
-    for tmp_dfs in [ingredient_dfs, direction_dfs]:
+    # 根据隐藏角色信息，重写操作步骤文本
+    new_direction_dfs = expand_hidden_role(direction_dfs, ingredient_dfs)
+    for tmp_dfs in [ingredient_dfs, direction_dfs, new_direction_dfs]:
         for tmp_df in tmp_dfs:
-            # assert 10 == len(tmp_df.columns)
-            tmp_df['form'] = tmp_df['form'].apply(lambda x: x.strip())
-            tmp_df['lemma'] = tmp_df['lemma'].apply(lambda x: x.strip())
+            tmp_df['form'] = tmp_df['form'].apply(lambda x: x.strip().lower())
+            tmp_df['lemma'] = tmp_df['lemma'].apply(lambda x: x.strip().lower())
     # 原始菜谱的文本长度
     metadata['seq_len'] = sum([len(x) for x in ingredients]) + sum([len(x) for x in directions])
     # 返回新结构的菜谱
@@ -116,6 +120,7 @@ def parse_recipe(recipe):
         'ingredient_dfs': ingredient_dfs,
         'directions': directions,
         'direction_dfs': direction_dfs,
+        'new_direction_dfs': new_direction_dfs,
     }
     return new_recipe
 
@@ -312,28 +317,49 @@ def expand_hidden_role(directions, ingredients):
         else:
             new_role_items = []
             for idx in range(len(role_items_plus) - 1):
-                new_role_items += role_items[idx]
+                new_role_items += role_items_plus[idx]
                 new_role_items.append([',', 'PUNCT', 'O'])
-            new_role_items.append(['and', 'CCONJ', 'O'])
-            new_role_items += role_items[idx + 1]
+            new_role_items[-1] = ['and', 'CCONJ', 'O']
+            new_role_items += role_items_plus[idx + 1]
         return new_role_items
+
+    # 检测当前文本的最后一个token，是否为标点符号
+    def check_last_punct(direction_dfs):
+        if 0 == len(direction_dfs):
+            return True
+        else:
+            return 'PUNCT' == direction_dfs[-1]['upos'].iloc[-1]
 
     upos_map = pd.concat([x for x in ingredients + directions]).set_index(['form'])['upos'].to_dict()
     directions_new = []
     for direction in directions:
+        # 新文本
         direction_new = []
         # 遍历所有token
         for idx, row in direction.iterrows():
             if '_' == row['hidden']:
                 direction_new.append(pd.DataFrame([row.to_dict()], columns=direction.columns))
             else:
-                tokens = [pd.DataFrame([row.to_dict()], columns=direction.columns)]
+                cur_token = [pd.DataFrame([row.to_dict()], columns=direction.columns)]
                 hidden_roles = row['hidden'].split('|')
+                # 变更hidden_roles的顺序
+                hidden_roles_tmp = {'Result': [], 'Habitat': [], 'Tool': [], 'Drop': [], 'Shadow': []}
+                for role in hidden_roles:
+                    match_flag = False
+                    for role_name in hidden_roles_tmp.keys():
+                        if role.startswith(role_name):
+                            hidden_roles_tmp[role_name].append(role)
+                            match_flag = True
+                            break
+                    if match_flag is False:
+                        raise ValueError('出现了意料之外的Hidden Role')
+                hidden_roles = hidden_roles_tmp['Result'] + hidden_roles_tmp['Habitat'] + hidden_roles_tmp['Tool'] \
+                               + hidden_roles_tmp['Drop'] + hidden_roles_tmp['Shadow']
                 # 遍历所有角色
                 for role in hidden_roles:
                     # 提取角色名和角色元素
                     role_name, role_items = role.split('=')
-                    role_items = [item.split('.')[0].split('_') for item in role_items.split('|')]
+                    role_items = [item.split('.')[0].split('_') for item in role_items.split(':')]
                     # Drop, Habitat, Tool, Result, Shadow
                     # 根据不同角色，添加不同的文本
                     if 'Result' == role_name:
@@ -341,6 +367,8 @@ def expand_hidden_role(directions, ingredients):
                         add_tokens = [['to', 'PART', 'O'], ['get', 'VERB', 'O']] \
                                      + add_tokens \
                                      + [[',', 'PUNCT', 'O']]
+                        if check_last_punct(direction_new) is False:
+                            add_tokens = [[',', 'PUNCT', 'O']] + add_tokens
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
@@ -349,12 +377,16 @@ def expand_hidden_role(directions, ingredients):
                             'entity': [x[2] for x in add_tokens],
                         }
                         add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
-                        tokens = [add_tokens_df] + tokens
+                        direction_new.extend([add_tokens_df] + cur_token)
+                        # direction_new = direction_new + [add_tokens_df] + cur_token
+                        cur_token = []
                     elif 'Habitat' == role_name:
                         add_tokens = join_role_items(role_items, upos_map, entity='HABITAT')
-                        add_tokens = [[',', 'PUNCT', 'O'], ['in', 'ADP', 'O']] \
+                        add_tokens = [['in', 'ADP', 'O']] \
                                      + add_tokens \
                                      + [[',', 'PUNCT', 'O']]
+                        if check_last_punct(direction_new + cur_token) is False:
+                            add_tokens = [[',', 'PUNCT', 'O']] + add_tokens
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
@@ -363,20 +395,22 @@ def expand_hidden_role(directions, ingredients):
                             'entity': [x[2] for x in add_tokens],
                         }
                         add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
-                        tokens = tokens + [add_tokens_df]
-                        continue
+                        direction_new.extend(cur_token + [add_tokens_df])
+                        # direction_new = direction_new + cur_token + [add_tokens_df]
+                        cur_token = []
                     elif 'Tool' == role_name:
                         add_tokens = join_role_items(role_items, upos_map, entity='TOOL')
                         if add_tokens[0][0] in ['hand', 'hands']:
                             add_tokens[0][0] = 'hand'
-                            add_tokens = [[',', 'PUNCT', 'O'], ['by', 'ADP', 'O']] \
+                            add_tokens = [['by', 'ADP', 'O']] \
                                          + add_tokens \
                                          + [[',', 'PUNCT', 'O']]
                         else:
-                            add_tokens = [[',', 'PUNCT', 'O'], ['by', 'ADP', 'O'], ['using', 'VERB', 'O'],
-                                          ['a', 'DET', 'O']] \
+                            add_tokens = [['by', 'ADP', 'O'], ['using', 'VERB', 'O'], ['a', 'DET', 'O']] \
                                          + add_tokens \
                                          + [[',', 'PUNCT', 'O']]
+                        if check_last_punct(direction_new + cur_token) is False:
+                            add_tokens = [[',', 'PUNCT', 'O']] + add_tokens
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
@@ -385,9 +419,10 @@ def expand_hidden_role(directions, ingredients):
                             'entity': [x[2] for x in add_tokens],
                         }
                         add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
-                        tokens = tokens + [add_tokens_df]
-                        continue
-                    elif 'Drop' == role_name:
+                        direction_new.extend(cur_token + [add_tokens_df])
+                        # direction_new = direction_new + cur_token + [add_tokens_df]
+                        cur_token = []
+                    elif ('Drop' == role_name) or ('Shadow' == role_name):
                         add_tokens = join_role_items(role_items, upos_map, entity='INGREDIENT')
                         add_tokens = [['the', 'DET', 'O']] \
                                      + add_tokens \
@@ -400,42 +435,63 @@ def expand_hidden_role(directions, ingredients):
                             'entity': [x[2] for x in add_tokens],
                         }
                         add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
-                        tokens = tokens + [add_tokens_df]
-                        continue
-                    elif 'Shadow' == role_name:
-                        add_tokens = join_role_items(role_items, upos_map, entity='INGREDIENT')
-                        add_tokens = [['the', 'DET', 'O']] \
-                                     + add_tokens \
-                                     + [[',', 'PUNCT', 'O']]
-                        add_tokens_df_data = {
-                            'id': [-1 for _ in add_tokens],
-                            'form': [x[0] for x in add_tokens],
-                            'lemma': [x[0] for x in add_tokens],
-                            'upos': [x[1] for x in add_tokens],
-                            'entity': [x[2] for x in add_tokens],
-                        }
-                        add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
-                        tokens = tokens + [add_tokens_df]
-                        continue
+                        direction_new.extend(cur_token + [add_tokens_df])
+                        # direction_new = direction_new + cur_token + [add_tokens_df]
+                        cur_token = []
                     else:
                         raise ValueError('出现了意料之外的Hidden Role')
-
-                direction_new += tokens
-        directions_new.append(pd.concat(direction_new))
+        direction_new = pd.concat(direction_new)
+        directions_new.append(direction_new)
     return directions_new
 
 
 # 标注一条QA样本
-def label_single_qa_sample(qa, recipe, sample):
+def label_single_qa_sample(sample, qa, recipe):
     ingredients = recipe['ingredient_dfs']
+    new_directions = recipe['new_direction_dfs']
     directions = recipe['direction_dfs']
 
     # 走规则模型
     if qa['type'] in ['count', 'act_first']:
         # todo 不标注
         return None
-    elif 'act_ref_place' == qa['type']:
-        new_directions = expand_hidden_role(directions, ingredients)
+    elif qa['type'] in ['act_ref_place', 'act_ref_tool', 'act_ref_igdt']:
+        q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a']
+        match_info = 'cannot_match'
+        q_kw = get_keywords([qa['key_str_q']], seps=[' ', 'and'], stopwords=q_stopwords, puncts=['.', ',', ';'])
+        if 'act_ref_igdt' == qa['type']:
+            for idx in range(3 if len(q_kw) >= 3 else len(q_kw)):
+                q_kw[idx] = lemmatizer.lemmatize(q_kw[idx], 'v')
+        a_kw = get_keywords([qa['key_str_a']], seps=[' ', 'and'], stopwords=['', 'the'], puncts=['.', ',', ';'])
+        tokens = [token for df in ingredients for token in df['form'].tolist()]
+        labels = [0 for _ in tokens]
+        for new_direction in new_directions:
+            cur_tmp_tokens = [t for t in new_direction['form'].tolist()]
+            # 判断当前句是否匹配到问题
+            match_q_cnt = 0
+            for keyword in q_kw:
+                if keyword in cur_tmp_tokens:
+                    match_q_cnt += 1
+            # 判断当前句是否匹配到答案
+            match_a_cnt = 0
+            for keyword in a_kw:
+                if keyword in cur_tmp_tokens:
+                    match_a_cnt += 1
+            # 添加tokens和labels
+            tokens.extend(cur_tmp_tokens)
+            if len(q_kw) == match_q_cnt and len(a_kw) == match_a_cnt:
+                # todo 当答案匹配到多个位置时，根据问题的位置，找更近的答案
+                # todo 添加duplicate说明
+                match_info = 'full_rule'
+                labels.extend([1 if token in a_kw else 0 for token in cur_tmp_tokens])
+            else:
+                if 'act_ref_igdt' == qa['type']:
+                    pass
+                labels.extend([0 for _ in cur_tmp_tokens])
+        sample['tokens'] = tokens
+        sample['label'] = labels
+        sample['match_info'] = match_info
+        return sample
 
     # 拼接食材清单文本，拼接操作步骤文本。拼接后的文本，剔除了所有空格。
     ingredient_tokens = [token for df in ingredients for token in df['form'].tolist()]
@@ -550,7 +606,8 @@ def auto_label(recipe):
             'type': qa['type'],
             'match_info': None,
         }
-        sample = label_single_qa_sample(qa, recipe, sample)
+        # 获取样本的3个字段信息：tokens，label，match_info
+        sample = label_single_qa_sample(sample, qa, recipe)
         if sample is not None:
             if sample['tokens'] is not None:
                 tks = sample['tokens']
@@ -567,12 +624,14 @@ def auto_label(recipe):
 
 
 # 菜谱信息分析
-def recipe_analyze(recipes, mode):
-    if False == mode:
+def analyze_recipe(recipes, mode):
+    if mode is False:
         return
 
-    # todo useful_cols: upos
     ingredient_all = pd.concat([df for recipe in recipes.values() for df in recipe['ingredient_dfs']])
+    direction_all = pd.concat([df for recipe in recipes.values() for df in recipe['direction_dfs']])
+
+    # todo useful_cols: upos
     for col in ['entity', 'part1', 'part2', 'hidden', 'coref', 'predicate']:
         print("======{}======".format(col))
         print(ingredient_all[ingredient_all[col] != '_'][ingredient_all.columns[:10]])
@@ -581,7 +640,6 @@ def recipe_analyze(recipes, mode):
         print(ingredient_all[ingredient_all[col] != '_'][col].value_counts())
 
     # todo useful_cols: upos, entity, hidden, coref
-    direction_all = pd.concat([df for recipe in recipes.values() for df in recipe['direction_dfs']])
     for col in ['part1', 'part2', 'predicate']:
         print("======{}======".format(col))
         print(direction_all[direction_all[col] != '_'][['form', 'part1', 'part2', 'coref', 'predicate']])
@@ -604,11 +662,32 @@ def recipe_analyze(recipes, mode):
 
 
 # QA样本信息分析
-def qa_analyze(qa_data_df, recipes, mode):
-    if False == mode:
+def analyze_qa(qa_data_df, recipes, mode):
+    def qa_case_analyze(recipe_id, question, recipes):
+        direction_all = pd.concat([df for df in recipes[recipe_id]['direction_dfs']])
+
+    if mode is False:
         return
 
+    # qa_data_df.sort_values(['type'])[['type', 'question', 'answer']].to_csv(os.path.join(data_dir, 'qa.txt'),
+    #                                                                         sep='\x01', index=None)
+
+    case_df = qa_data_df[(qa_data_df['type'] == 'act_ref_igdt') & (qa_data_df['match_info'] == 'cannot_match')]
+    for idx in range(len(case_df)):
+        row = case_df.iloc[idx]
+        recipe_id = '-'.join(row['id'].split('-')[:2])
+        question = row['question']
+        answer = row['answer']
+        recipe = recipes[recipe_id]
+        direction_all = pd.concat([df for df in recipe['direction_dfs']])
+        pass
+
     qa_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
+    for answer in qa_all['answer'].to_list():
+        if 'N/A' == answer:
+            continue
+        if re.findall('[A-Z]', answer):
+            print(answer)
 
     type = 'act_ref_place'
     case = qa_all[qa_all['type'] == type]
@@ -624,6 +703,10 @@ def qa_analyze(qa_data_df, recipes, mode):
     for qa_type, tmp_df in qa_data_df.groupby(['type']):
         print("==={}===".format(qa_type))
         print(tmp_df['match_info'].value_counts(dropna=False))
+
+    case = qa_data_df
+    case = case[case['type'] == 'act_ref_igdt']
+    case['question'].apply(lambda x: x[15:].split(' ')[:2][1:]).value_counts()
 
     case = qa_data_df
     case = case[case['type'] == 'act_ref_place']
@@ -666,9 +749,6 @@ def data_process(dataset_name):
         recipes.append(recipe)
     recipes = {recipe['newdoc_id']: recipe for recipe in recipes}
 
-    # 分析材料清单和操作步骤的额外信息
-    recipe_analyze(recipes, False)
-
     # 自动标注
     all_samples = []
     for recipe_id, recipe in recipes.items():
@@ -676,8 +756,11 @@ def data_process(dataset_name):
         all_samples += single_recipe_qa_samples
     data_df = pd.DataFrame(all_samples)
 
+    # 分析材料清单和操作步骤的额外信息
+    analyze_recipe(recipes, False)
+
     # 分析自动标注数据
-    qa_analyze(data_df, recipes, True)
+    analyze_qa(data_df, recipes, True)
 
     dataset = {
         'question': data_df['question'].to_list(),
