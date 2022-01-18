@@ -12,7 +12,7 @@ from conllu import parse
 import nltk.stem as ns
 from init_config import src_dir, data_dir
 
-lemmatizer = ns.WordNetLemmatizer()
+lemmer = ns.WordNetLemmatizer()
 
 """
 CONLL标注格式包含10列，分别为：
@@ -197,19 +197,19 @@ type_a_regex_pattern_dict = {
 type_sep_dict = {
     'count': [],
     'act_first': [],
-    'act_ref_igdt': ['and', ','],
-    'act_ref_place': ['and', ','],
-    'act_ref_tool': ['and', ','],
-    'in_container': ['and', ','],
-    'get_middle_igdt': ['and'],
-    'act_extent': ['and'],
+    'act_ref_igdt': [' and ', ','],
+    'act_ref_place': [' and ', ','],
+    'act_ref_tool': [' and ', ','],
+    'in_container': [' and ', ','],
+    'get_middle_igdt': [' and '],
+    'act_extent': [' and '],
     'full_act': [],
     'act_duration': [],
     'add_igdt_place': [],
     'igdt_act_ref_place': [],
     'igdt_amount': [],
     'act_reason': [],
-    'act_couple_igdt': ['and', ','],
+    'act_couple_igdt': [' and ', ','],
     'act_from_where': [],
     'place_before_act': [],
     'what_do_you': [],
@@ -447,47 +447,105 @@ def expand_hidden_role(directions, ingredients):
 
 # 标注一条QA样本
 def label_single_qa_sample(sample, qa, recipe):
+    def token_match(tokens, token_list):
+        for token in tokens:
+            if token in token_list:
+                return True
+        return False
+
     ingredients = recipe['ingredient_dfs']
     new_directions = recipe['new_direction_dfs']
     directions = recipe['direction_dfs']
 
+    question = qa['question']
+    answer = qa['answer']
+    qa_type = qa['type']
+
+    rule_match_type = {
+        1: ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act'],
+        2: ['igdt_act_ref_place']
+    }
     # 走规则模型
-    if qa['type'] in ['count', 'act_first']:
+    if qa_type in ['count', 'act_first']:
         # todo 不标注
         return None
-    elif qa['type'] in ['act_ref_place', 'act_ref_tool', 'act_ref_igdt']:
+    elif qa_type in ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act']:
+        if 'igdt_act_ref_place' == qa_type:
+            print('')
+            pass
         q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a']
+        del_puncts = ['.', ',', ';']
         match_info = 'cannot_match'
-        q_kw = get_keywords([qa['key_str_q']], seps=[' ', 'and'], stopwords=q_stopwords, puncts=['.', ',', ';'])
-        if 'act_ref_igdt' == qa['type']:
-            for idx in range(3 if len(q_kw) >= 3 else len(q_kw)):
-                q_kw[idx] = lemmatizer.lemmatize(q_kw[idx], 'v')
-        a_kw = get_keywords([qa['key_str_a']], seps=[' ', 'and'], stopwords=['', 'the'], puncts=['.', ',', ';'])
-        tokens = [token for df in ingredients for token in df['form'].tolist()]
-        labels = [0 for _ in tokens]
-        for new_direction in new_directions:
-            cur_tmp_tokens = [t for t in new_direction['form'].tolist()]
+        # 清洗输入文本1：读取操作步骤的原始token和词源token
+        drts_tokens = [direction['form'].tolist() for direction in new_directions]
+        drts_tokens_lemma = [direction['lemma'].tolist() for direction in new_directions]
+        # 清洗输入文本2：剔除标点符号，部分文本未能够将标点符号分词为独立token
+        for del_p in del_puncts:
+            drts_tokens = [[t.replace(del_p, '') if len(t) > 1 else t for t in d] for d in drts_tokens]
+            drts_tokens_lemma = [[t.replace(del_p, '') if len(t) > 1 else t for t in d] for d in drts_tokens_lemma]
+        # 获取问题和答案的关键词，并转化为词源
+        q_kws = get_keywords([qa['key_str_q']], seps=[' and ', ' '], stopwords=q_stopwords, puncts=['.', ',', ';'])
+        q_kws = [(kw, lemmer.lemmatize(kw, 'v'), lemmer.lemmatize(kw, 'n')) for kw in q_kws]
+        a_kws = get_keywords([qa['key_str_a']], seps=[' and ', ' '], stopwords=['', 'the'], puncts=['.', ',', ';'])
+        a_kws = [(kw, lemmer.lemmatize(kw, 'v'), lemmer.lemmatize(kw, 'n')) for kw in a_kws]
+        a_kws_flat = [y for x in a_kws for y in x]
+
+        # for idx, new_direction in enumerate(new_directions):
+        #     # 读取操作步骤的原始token和词源token
+        #     direction_tokens = [t for t in new_direction['form'].tolist()]
+        #     direction_tokens_lemma = [t for t in new_direction['lemma'].tolist()]
+        #     # 剔除标点符号，部分文本未能够将标点符号分词为独立token
+        #     for del_p in del_puncts:
+        #         direction_tokens = [t.replace(del_p, '') if len(t) > 1 else t for t in direction_tokens]
+        #         direction_tokens_lemma = [t.replace(del_p, '') if len(t) > 1 else t for t in direction_tokens_lemma]
+
+        # 遍历操作步骤的文本，判断问题是否匹配，判断答案是否匹配
+        sent_label_flag = [None for _ in new_directions]
+        for idx, (direction_tokens, direction_tokens_lemma) in enumerate(zip(drts_tokens, drts_tokens_lemma)):
             # 判断当前句是否匹配到问题
             match_q_cnt = 0
-            for keyword in q_kw:
-                if keyword in cur_tmp_tokens:
+            for kw, kw_v_lemma, kw_n_lemma in q_kws:
+                if token_match((kw, kw_v_lemma, kw_n_lemma), direction_tokens + direction_tokens_lemma):
                     match_q_cnt += 1
+            if len(q_kws) == match_q_cnt:
+                q_match_flag = True
+            else:
+                q_match_flag = False
             # 判断当前句是否匹配到答案
-            match_a_cnt = 0
-            for keyword in a_kw:
-                if keyword in cur_tmp_tokens:
-                    match_a_cnt += 1
-            # 添加tokens和labels
-            tokens.extend(cur_tmp_tokens)
-            if len(q_kw) == match_q_cnt and len(a_kw) == match_a_cnt:
+            if qa_type in rule_match_type[1]:
+                match_a_cnt = 0
+                for kw, kw_v_lemma, kw_n_lemma in a_kws:
+                    if token_match((kw, kw_v_lemma, kw_n_lemma), direction_tokens + direction_tokens_lemma):
+                        match_a_cnt += 1
+                if len(a_kws) == match_a_cnt:
+                    a_match_flag = True
+                else:
+                    a_match_flag = False
+            elif qa_type in rule_match_type[1]:
+                a_match_flag = None
+            else:
+                a_match_flag = None
+                raise ValueError('出现了意料之外的rule type')
+
+            if q_match_flag and a_match_flag:
+                sent_label_flag[idx] = 1
+                match_info = 'full_rule'
+            else:
+                sent_label_flag[idx] = 0
+
+        # 读取菜谱文本的token，并标注label
+        tokens = [token for df in ingredients for token in df['form'].tolist()]
+        labels = [0 for _ in tokens]
+        # 添加操作步骤的tokens和labels
+        for idx, (direction_tokens, direction_tokens_lemma) in enumerate(zip(drts_tokens, drts_tokens_lemma)):
+            tokens.extend(direction_tokens)
+            if 1 == sent_label_flag[idx]:
                 # todo 当答案匹配到多个位置时，根据问题的位置，找更近的答案
                 # todo 添加duplicate说明
-                match_info = 'full_rule'
-                labels.extend([1 if token in a_kw else 0 for token in cur_tmp_tokens])
-            else:
-                if 'act_ref_igdt' == qa['type']:
-                    pass
-                labels.extend([0 for _ in cur_tmp_tokens])
+                labels.extend([1 if token_match(tokens, a_kws_flat) else 0
+                               for tokens in zip(direction_tokens, direction_tokens_lemma)])
+            elif 0 == sent_label_flag[idx]:
+                labels.extend([0 for _ in direction_tokens_lemma])
         sample['tokens'] = tokens
         sample['label'] = labels
         sample['match_info'] = match_info
@@ -672,50 +730,50 @@ def analyze_qa(qa_data_df, recipes, mode):
     # qa_data_df.sort_values(['type'])[['type', 'question', 'answer']].to_csv(os.path.join(data_dir, 'qa.txt'),
     #                                                                         sep='\x01', index=None)
 
-    case_df = qa_data_df[(qa_data_df['type'] == 'act_ref_igdt') & (qa_data_df['match_info'] == 'cannot_match')]
-    for idx in range(len(case_df)):
-        row = case_df.iloc[idx]
-        recipe_id = '-'.join(row['id'].split('-')[:2])
-        question = row['question']
-        answer = row['answer']
-        recipe = recipes[recipe_id]
-        direction_all = pd.concat([df for df in recipe['direction_dfs']])
-        pass
+    # case_df = qa_data_df[(qa_data_df['type'] == 'act_ref_igdt') & (qa_data_df['match_info'] == 'cannot_match')]
+    # for idx in range(len(case_df)):
+    #     row = case_df.iloc[idx]
+    #     recipe_id = '-'.join(row['id'].split('-')[:2])
+    #     question = row['question']
+    #     answer = row['answer']
+    #     recipe = recipes[recipe_id]
+    #     direction_all = pd.concat([df for df in recipe['direction_dfs']])
+    #     pass
 
-    qa_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
-    for answer in qa_all['answer'].to_list():
-        if 'N/A' == answer:
-            continue
-        if re.findall('[A-Z]', answer):
-            print(answer)
+    # qa_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
+    # for answer in qa_all['answer'].to_list():
+    #     if 'N/A' == answer:
+    #         continue
+    #     if re.findall('[A-Z]', answer):
+    #         print(answer)
 
-    type = 'act_ref_place'
-    case = qa_all[qa_all['type'] == type]
-    case['the'] = case['key_str_q'].apply(lambda x: x.split(' ')[1])
-    case = case[case['the'] != 'the']
-    case2 = qa_data_df[qa_data_df['type'] == type][['id', 'question', 'answer', 'match_info']]
+    # type = 'act_ref_place'
+    # case = qa_all[qa_all['type'] == type]
+    # case['the'] = case['key_str_q'].apply(lambda x: x.split(' ')[1])
+    # case = case[case['the'] != 'the']
+    # case2 = qa_data_df[qa_data_df['type'] == type][['id', 'question', 'answer', 'match_info']]
 
-    case['key_str_q'].apply(
-        lambda x: get_keywords([x], seps=[' ', 'and'], stopwords=['', 'the', 'with'], puncts=['.', ',', ';']))
+    # case['key_str_q'].apply(
+    #     lambda x: get_keywords([x], seps=[' and ', ' '], stopwords=['', 'the', 'with'], puncts=['.', ',', ';']))
 
-    qa_data_df['len'] = qa_data_df['tokens'].apply(len)
+    # qa_data_df['len'] = qa_data_df['tokens'].apply(len)
 
     for qa_type, tmp_df in qa_data_df.groupby(['type']):
         print("==={}===".format(qa_type))
         print(tmp_df['match_info'].value_counts(dropna=False))
 
-    case = qa_data_df
-    case = case[case['type'] == 'act_ref_igdt']
-    case['question'].apply(lambda x: x[15:].split(' ')[:2][1:]).value_counts()
-
-    case = qa_data_df
-    case = case[case['type'] == 'act_ref_place']
-    case = case[case['match_info'] == 'cannot_match']
-    idx = 222
-    recipe_id = '-'.join(case['id'].loc[idx].split('-')[:2])
-    question = case['question'].loc[idx]
-    recipe = recipes[recipe_id]
-    direction = pd.concat([df for df in recipe['direction_dfs']])
+    # case = qa_data_df
+    # case = case[case['type'] == 'act_ref_igdt']
+    # case['question'].apply(lambda x: x[15:].split(' ')[:2][1:]).value_counts()
+    #
+    # case = qa_data_df
+    # case = case[case['type'] == 'act_ref_place']
+    # case = case[case['match_info'] == 'cannot_match']
+    # idx = 222
+    # recipe_id = '-'.join(case['id'].loc[idx].split('-')[:2])
+    # question = case['question'].loc[idx]
+    # recipe = recipes[recipe_id]
+    # direction = pd.concat([df for df in recipe['direction_dfs']])
 
     pass
 
