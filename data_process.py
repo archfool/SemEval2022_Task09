@@ -131,8 +131,8 @@ type_family_id_dict = {
     'act_ref_igdt': [1],
     'act_ref_place': [2],
     'act_ref_tool': [2],
-    'in_container': [3],
-    'get_middle_igdt': [3],
+    'result_component': [3],
+    'get_result': [3],
     'act_extent': [5],
     'full_act': [5, 6, 8, 10, 14],
     'act_duration': [7],
@@ -154,8 +154,8 @@ type_q_regex_pattern_dict = {
     'act_ref_igdt': ['What should be (?P<keyword>.+)\?'],
     'act_ref_place': ['Where should you (?P<keyword>.+)\?'],
     'act_ref_tool': ['How do you (?P<keyword>.+)\?'],
-    'in_container': ['What\'s in the (?P<keyword>.+)\?'],
-    'get_middle_igdt': ['How did you get the (?P<keyword>.+)\?'],
+    'result_component': ['What\'s in the (?P<keyword>.+)\?'],
+    'get_result': ['How did you get the (?P<keyword>.+)\?'],
     'act_extent': ['To what extent do you (?P<keyword>.+)\?'],
     'full_act': ['How do you (?P<keyword>.+)\?'],
     'act_duration': ['For how long do you (?P<keyword>.+)\?'],
@@ -175,8 +175,8 @@ type_a_regex_pattern_dict = {
     'act_ref_igdt': ['(?:the )?(?P<keyword>.+)'],
     'act_ref_place': ['(?P<keyword>.+)'],
     'act_ref_tool': ['by (?P<keyword>hand)', 'by using a (?P<keyword>.+)'],
-    'in_container': ['(?:the )?(?P<keyword>.+)'],
-    'get_middle_igdt': ['by (?P<keyword>.+)'],
+    'result_component': ['(?:the )?(?P<keyword>.+)'],
+    'get_result': ['by (?P<keyword>.+)'],
     'act_extent': ['(?:until )(?P<keyword>.+)',
                    '(?:till )?(?P<keyword>.+)'],
     'full_act': ['(?P<keyword>.+)'],
@@ -200,8 +200,8 @@ type_sep_dict = {
     'act_ref_igdt': [' and ', ','],
     'act_ref_place': [' and ', ','],
     'act_ref_tool': [' and ', ','],
-    'in_container': [' and ', ','],
-    'get_middle_igdt': [' and '],
+    'result_component': [' and ', ','],
+    'get_result': [' and '],
     'act_extent': [' and '],
     'full_act': [],
     'act_duration': [],
@@ -447,11 +447,38 @@ def expand_hidden_role(directions, ingredients):
 
 # 标注一条QA样本
 def label_single_qa_sample(sample, qa, recipe):
-    def token_match(tokens, token_list):
-        for token in tokens:
-            if token in token_list:
+    # 判断target_token（包含多个形态）是否在candidate_tokens中出现
+    def token_match(target_tokens, candidate_tokens):
+        for token in target_tokens:
+            if token in candidate_tokens:
                 return True
         return False
+
+    # 判断target_string是否在context中出现
+    def string_match(target_string, context_tokens):
+        target_string = target_string.replace(' ', '').replace('(', '\(').replace(')', '\)')
+        context = ''.join(context_tokens).replace(' ', '')
+        # 计算token在文本中的位置偏置（删除了所有空格后的文本）
+        offsets = []
+        cur_offset = 0
+        for token in context_tokens:
+            offsets.append((cur_offset, cur_offset + len(token.replace(' ', ''))))
+            cur_offset = offsets[-1][1]
+        match_flag = False
+        labels = []
+        span_offsets = []
+        for tmp in re.finditer(target_string, context):
+            span_offsets.append(tmp.span())
+        if len(span_offsets) > 0:
+            match_flag = True
+            for offset in offsets:
+                label = 0
+                for span_offset in span_offsets:
+                    if span_offset[0] <= offset[0] and offset[1] <= span_offset[1]:
+                        label = 1
+                        continue
+                labels.append(label)
+        return match_flag, labels
 
     ingredients = recipe['ingredient_dfs']
     new_directions = recipe['new_direction_dfs']
@@ -461,29 +488,29 @@ def label_single_qa_sample(sample, qa, recipe):
     answer = qa['answer']
     qa_type = qa['type']
 
+    """============================规则============================"""
+    # 走规则模型
     rule_match_type = {
         1: ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act'],
         2: ['igdt_act_ref_place']
     }
-    # 走规则模型
-    if qa_type in ['count', 'act_first']:
-        # todo 不标注
+    if qa_type in ['count', 'act_first', 'place_before_act', 'get_result', 'result_component']:
+        # todo 纯规则，不标注
         return None
-    elif qa_type in ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act']:
-        if 'igdt_act_ref_place' == qa_type:
-            print('')
-            pass
-        q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a']
-        del_puncts = ['.', ',', ';']
+    elif qa_type in [tp for types in rule_match_type.values() for tp in types] + ['get_result']:
+        if 'get_result' == qa_type:
+            return None
         match_info = 'cannot_match'
         # 清洗输入文本1：读取操作步骤的原始token和词源token
         drts_tokens = [direction['form'].tolist() for direction in new_directions]
         drts_tokens_lemma = [direction['lemma'].tolist() for direction in new_directions]
         # 清洗输入文本2：剔除标点符号，部分文本未能够将标点符号分词为独立token
+        del_puncts = ['.', ',', ';']
         for del_p in del_puncts:
             drts_tokens = [[t.replace(del_p, '') if len(t) > 1 else t for t in d] for d in drts_tokens]
             drts_tokens_lemma = [[t.replace(del_p, '') if len(t) > 1 else t for t in d] for d in drts_tokens_lemma]
         # 获取问题和答案的关键词，并转化为词源
+        q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a']
         q_kws = get_keywords([qa['key_str_q']], seps=[' and ', ' '], stopwords=q_stopwords, puncts=['.', ',', ';'])
         q_kws = [(kw, lemmer.lemmatize(kw, 'v'), lemmer.lemmatize(kw, 'n')) for kw in q_kws]
         a_kws = get_keywords([qa['key_str_a']], seps=[' and ', ' '], stopwords=['', 'the'], puncts=['.', ',', ';'])
@@ -504,28 +531,22 @@ def label_single_qa_sample(sample, qa, recipe):
         for idx, (direction_tokens, direction_tokens_lemma) in enumerate(zip(drts_tokens, drts_tokens_lemma)):
             # 判断当前句是否匹配到问题
             match_q_cnt = 0
-            for kw, kw_v_lemma, kw_n_lemma in q_kws:
-                if token_match((kw, kw_v_lemma, kw_n_lemma), direction_tokens + direction_tokens_lemma):
+            for cur_a_kws in q_kws:
+                if token_match(cur_a_kws, direction_tokens + direction_tokens_lemma):
                     match_q_cnt += 1
-            if len(q_kws) == match_q_cnt:
-                q_match_flag = True
-            else:
-                q_match_flag = False
+            q_match_flag = len(q_kws) == match_q_cnt
             # 判断当前句是否匹配到答案
             if qa_type in rule_match_type[1]:
                 match_a_cnt = 0
-                for kw, kw_v_lemma, kw_n_lemma in a_kws:
-                    if token_match((kw, kw_v_lemma, kw_n_lemma), direction_tokens + direction_tokens_lemma):
+                for cur_a_kws in a_kws:
+                    if token_match(cur_a_kws, direction_tokens + direction_tokens_lemma):
                         match_a_cnt += 1
-                if len(a_kws) == match_a_cnt:
-                    a_match_flag = True
-                else:
-                    a_match_flag = False
-            elif qa_type in rule_match_type[1]:
-                a_match_flag = None
+                a_match_flag = len(a_kws) == match_a_cnt
+            elif qa_type in rule_match_type[2]:
+                a_match_flag, _ = string_match(answer, direction_tokens)
             else:
                 a_match_flag = None
-                raise ValueError('出现了意料之外的rule type')
+                raise ValueError('出现了意料之外的rule qa_type')
 
             if q_match_flag and a_match_flag:
                 sent_label_flag[idx] = 1
@@ -538,19 +559,31 @@ def label_single_qa_sample(sample, qa, recipe):
         labels = [0 for _ in tokens]
         # 添加操作步骤的tokens和labels
         for idx, (direction_tokens, direction_tokens_lemma) in enumerate(zip(drts_tokens, drts_tokens_lemma)):
+            # 添加当前步骤的token
             tokens.extend(direction_tokens)
+            # 添加当前步骤的label
             if 1 == sent_label_flag[idx]:
                 # todo 当答案匹配到多个位置时，根据问题的位置，找更近的答案
                 # todo 添加duplicate说明
-                labels.extend([1 if token_match(tokens, a_kws_flat) else 0
-                               for tokens in zip(direction_tokens, direction_tokens_lemma)])
+                if qa_type in rule_match_type[1]:
+                    sent_labels = [1 if token_match(tokens, a_kws_flat) else 0 for tokens in
+                                   zip(direction_tokens, direction_tokens_lemma)]
+                    labels.extend(sent_labels)
+                elif qa_type in rule_match_type[2]:
+                    _, sent_labels = string_match(answer, direction_tokens)
+                    labels.extend(sent_labels)
+                else:
+                    raise ValueError('出现了意料之外的rule qa_type')
             elif 0 == sent_label_flag[idx]:
-                labels.extend([0 for _ in direction_tokens_lemma])
+                labels.extend([0 for _ in direction_tokens])
+
+        assert len(tokens) == len(labels)
         sample['tokens'] = tokens
         sample['label'] = labels
         sample['match_info'] = match_info
         return sample
 
+    """============================模型============================"""
     # 拼接食材清单文本，拼接操作步骤文本。拼接后的文本，剔除了所有空格。
     ingredient_tokens = [token for df in ingredients for token in df['form'].tolist()]
     direction_tokens = [token for df in directions for token in df['form'].tolist()]
