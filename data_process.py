@@ -546,14 +546,13 @@ def label_single_qa_sample(sample, qa, recipe):
     # 走规则模型
     rule_match_type = {
         1: ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act'],  # 关键词匹配
-        2: ['igdt_act_ref_place', 'act_duration', 'act_extent', 'act_reason', 'add_igdt_place','act_from_where'],  # 整句匹配
+        2: ['igdt_act_ref_place', 'act_duration', 'act_extent', 'act_reason', 'add_igdt_place', 'act_from_where',
+            'act_couple_igdt', 'igdt_amount', 'how_would_you', 'what_do_you'],  # 整句匹配
     }
     if qa_type in ['count', 'act_first', 'place_before_act', 'get_result', 'result_component']:
         # todo 纯规则，不标注
         return None
-    elif qa_type in [tp for types in rule_match_type.values() for tp in types] + ['act_couple_igdt']:
-        if 'act_couple_igdt' == qa_type:
-            return None
+    elif qa_type in [tp for types in rule_match_type.values() for tp in types]:
         match_info = 'cannot_match'
         # # 清洗输入文本1：读取操作步骤的原始token和词源token
         # drts_tokens = [direction['form'].tolist() for direction in new_directions]
