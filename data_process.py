@@ -10,6 +10,7 @@ import numpy as np
 import re
 from conllu import parse
 import nltk.stem as ns
+import copy
 from init_config import src_dir, data_dir
 
 lemmer = ns.WordNetLemmatizer()
@@ -308,8 +309,8 @@ def expand_hidden_role(directions, ingredients):
         role_items_plus = []
         # 标记upos和entity属性
         for role_item in role_items:
-            role_item = [[token, upos_map.get(token, 'NOUN'), 'I-' + entity] for token in role_item]
-            role_item[0][2] = 'B-' + entity
+            role_item = [[token, upos_map.get(token, 'NOUN'), 'I-ADD-' + entity] for token in role_item]
+            role_item[0][2] = 'B-ADD-' + entity
             role_items_plus.append(role_item)
         # 添加连接词
         if 1 == len(role_items_plus):
@@ -317,10 +318,10 @@ def expand_hidden_role(directions, ingredients):
         else:
             new_role_items = []
             for idx in range(len(role_items_plus) - 1):
-                new_role_items += role_items_plus[idx]
-                new_role_items.append([',', 'PUNCT', 'O'])
-            new_role_items[-1] = ['and', 'CCONJ', 'O']
-            new_role_items += role_items_plus[idx + 1]
+                new_role_items.extend(role_items_plus[idx])
+                new_role_items.append([',', 'PUNCT', 'O-ADD'])
+            new_role_items[-1] = ['and', 'CCONJ', 'O-ADD']
+            new_role_items.extend(role_items_plus[idx + 1])
         return new_role_items
 
     # 检测当前文本的最后一个token，是否为标点符号
@@ -337,10 +338,44 @@ def expand_hidden_role(directions, ingredients):
         direction_new = []
         # 遍历所有token
         for idx, row in direction.iterrows():
-            if '_' == row['hidden']:
-                direction_new.append(pd.DataFrame([row.to_dict()], columns=direction.columns))
+            # 如果原始文本未能正确分割标点符号，则进行纠正
+            re_punct = re.search('[.,;]', row['form'])
+            if re_punct and len(row['form']) > 1 and row['form'] not in ['..', '...']:
+                span = re_punct.span()
+                if span == (0, 1) or span == (len(row['form']) - 1, len(row['form'])):
+                    # 生成标点token信息
+                    punct_token = row['form'][span[0]: span[1]]
+                    punct_token_data = {
+                        'id': row['id'],
+                        'form': punct_token,
+                        'lemma': punct_token,
+                        'upos': 'PUNCT',
+                        'entity': 'O',
+                    }
+                    # 判断标点位置
+                    if span[0] == 0:
+                        row['form'] = row['form'][1:]
+                        row['lemma'] = row['lemma'][1:]
+                        punct_tokens = [punct_token_data, row.to_dict()]
+                    elif span[0] == len(row['form']) - 1:
+                        row['form'] = row['form'][:-1]
+                        row['lemma'] = row['lemma'][:-1]
+                        punct_tokens = [row.to_dict(), punct_token_data]
+                    else:
+                        punct_tokens = [row.to_dict()]
+                        print('token内的标点位置异常:{}'.format(row['form']))
+                    token_df = pd.DataFrame(punct_tokens, columns=direction.columns)
+                else:
+                    token_df = pd.DataFrame([row.to_dict()], columns=direction.columns)
+                    print('token内的标点位置异常:{}'.format(row['form']))
             else:
-                cur_token = [pd.DataFrame([row.to_dict()], columns=direction.columns)]
+                token_df = pd.DataFrame([row.to_dict()], columns=direction.columns)
+            # 处理不含角色信息的token
+            if '_' == row['hidden']:
+                direction_new.append(token_df)
+            # 处理包含角色信息的token
+            else:
+                cur_token = [token_df]
                 hidden_roles = row['hidden'].split('|')
                 # 变更hidden_roles的顺序
                 hidden_roles_tmp = {'Result': [], 'Habitat': [], 'Tool': [], 'Drop': [], 'Shadow': []}
@@ -364,11 +399,11 @@ def expand_hidden_role(directions, ingredients):
                     # 根据不同角色，添加不同的文本
                     if 'Result' == role_name:
                         add_tokens = join_role_items(role_items, upos_map, entity='INGREDIENT')
-                        add_tokens = [['to', 'PART', 'O'], ['get', 'VERB', 'O']] \
+                        add_tokens = [['to', 'PART', 'O-ADD'], ['get', 'VERB', 'O-ADD']] \
                                      + add_tokens \
-                                     + [[',', 'PUNCT', 'O']]
+                                     + [[',', 'PUNCT', 'O-ADD']]
                         if check_last_punct(direction_new) is False:
-                            add_tokens = [[',', 'PUNCT', 'O']] + add_tokens
+                            add_tokens = [[',', 'PUNCT', 'O-ADD']] + add_tokens
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
@@ -382,11 +417,11 @@ def expand_hidden_role(directions, ingredients):
                         cur_token = []
                     elif 'Habitat' == role_name:
                         add_tokens = join_role_items(role_items, upos_map, entity='HABITAT')
-                        add_tokens = [['in', 'ADP', 'O']] \
+                        add_tokens = [['in', 'ADP', 'O-ADD']] \
                                      + add_tokens \
-                                     + [[',', 'PUNCT', 'O']]
+                                     + [[',', 'PUNCT', 'O-ADD']]
                         if check_last_punct(direction_new + cur_token) is False:
-                            add_tokens = [[',', 'PUNCT', 'O']] + add_tokens
+                            add_tokens = [[',', 'PUNCT', 'O-ADD']] + add_tokens
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
@@ -402,15 +437,15 @@ def expand_hidden_role(directions, ingredients):
                         add_tokens = join_role_items(role_items, upos_map, entity='TOOL')
                         if add_tokens[0][0] in ['hand', 'hands']:
                             add_tokens[0][0] = 'hand'
-                            add_tokens = [['by', 'ADP', 'O']] \
+                            add_tokens = [['by', 'ADP', 'O-ADD']] \
                                          + add_tokens \
-                                         + [[',', 'PUNCT', 'O']]
+                                         + [[',', 'PUNCT', 'O-ADD']]
                         else:
-                            add_tokens = [['by', 'ADP', 'O'], ['using', 'VERB', 'O'], ['a', 'DET', 'O']] \
+                            add_tokens = [['by', 'ADP', 'O-ADD'], ['using', 'VERB', 'O-ADD'], ['a', 'DET', 'O-ADD']] \
                                          + add_tokens \
-                                         + [[',', 'PUNCT', 'O']]
+                                         + [[',', 'PUNCT', 'O-ADD']]
                         if check_last_punct(direction_new + cur_token) is False:
-                            add_tokens = [[',', 'PUNCT', 'O']] + add_tokens
+                            add_tokens = [[',', 'PUNCT', 'O-ADD']] + add_tokens
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
@@ -424,9 +459,9 @@ def expand_hidden_role(directions, ingredients):
                         cur_token = []
                     elif ('Drop' == role_name) or ('Shadow' == role_name):
                         add_tokens = join_role_items(role_items, upos_map, entity='INGREDIENT')
-                        add_tokens = [['the', 'DET', 'O']] \
+                        add_tokens = [['the', 'DET', 'O-ADD']] \
                                      + add_tokens \
-                                     + [[',', 'PUNCT', 'O']]
+                                     + [[',', 'PUNCT', 'O-ADD']]
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
@@ -455,8 +490,18 @@ def label_single_qa_sample(sample, qa, recipe):
         return False
 
     # 判断target_string是否在context中出现
-    def string_match(target_string, context_tokens):
+    def string_match(target_string, context_tokens, add_tags=None):
         target_string = target_string.replace(' ', '').replace('(', '\(').replace(')', '\)')
+        context_tokens_bak = copy.deepcopy(context_tokens)
+        # add_tags表示加入角色信息的标注，-1表示当前位置为添加的角色信息
+        # 若add_tags不为None，则从context_tokens中提取出原始文本，进行匹配
+        if add_tags is not None:
+            context_tokens_tmp = []
+            for token, add_tag in zip(context_tokens, add_tags):
+                if add_tag != -1:
+                    context_tokens_tmp.append(token)
+            context_tokens = context_tokens_tmp
+        # 合并原始文本的tokens成string，并删除空格
         context = ''.join(context_tokens).replace(' ', '')
         # 计算token在文本中的位置偏置（删除了所有空格后的文本）
         offsets = []
@@ -469,6 +514,7 @@ def label_single_qa_sample(sample, qa, recipe):
         span_offsets = []
         for tmp in re.finditer(target_string, context):
             span_offsets.append(tmp.span())
+        # 如果未匹配到，则返回的labels为空队列。若匹配到，则生成labels。
         if len(span_offsets) > 0:
             match_flag = True
             for offset in offsets:
@@ -478,6 +524,14 @@ def label_single_qa_sample(sample, qa, recipe):
                         label = 1
                         continue
                 labels.append(label)
+            if add_tags is not None:
+                labels_tmp = []
+                for add_tag in add_tags:
+                    if -1 == add_tag:
+                        labels_tmp.append(0)
+                    else:
+                        labels_tmp.append(labels.pop(0))
+                labels = labels_tmp
         return match_flag, labels
 
     ingredients = recipe['ingredient_dfs']
@@ -491,26 +545,26 @@ def label_single_qa_sample(sample, qa, recipe):
     """============================规则============================"""
     # 走规则模型
     rule_match_type = {
-        1: ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act'],
-        2: ['igdt_act_ref_place']
+        1: ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act'],  # 关键词匹配
+        2: ['igdt_act_ref_place', 'act_duration', 'act_extent', 'act_reason', 'add_igdt_place','act_from_where'],  # 整句匹配
     }
     if qa_type in ['count', 'act_first', 'place_before_act', 'get_result', 'result_component']:
         # todo 纯规则，不标注
         return None
-    elif qa_type in [tp for types in rule_match_type.values() for tp in types] + ['get_result']:
-        if 'get_result' == qa_type:
+    elif qa_type in [tp for types in rule_match_type.values() for tp in types] + ['act_couple_igdt']:
+        if 'act_couple_igdt' == qa_type:
             return None
         match_info = 'cannot_match'
-        # 清洗输入文本1：读取操作步骤的原始token和词源token
-        drts_tokens = [direction['form'].tolist() for direction in new_directions]
-        drts_tokens_lemma = [direction['lemma'].tolist() for direction in new_directions]
-        # 清洗输入文本2：剔除标点符号，部分文本未能够将标点符号分词为独立token
-        del_puncts = ['.', ',', ';']
-        for del_p in del_puncts:
-            drts_tokens = [[t.replace(del_p, '') if len(t) > 1 else t for t in d] for d in drts_tokens]
-            drts_tokens_lemma = [[t.replace(del_p, '') if len(t) > 1 else t for t in d] for d in drts_tokens_lemma]
+        # # 清洗输入文本1：读取操作步骤的原始token和词源token
+        # drts_tokens = [direction['form'].tolist() for direction in new_directions]
+        # drts_tokens_lemma = [direction['lemma'].tolist() for direction in new_directions]
+        # # 清洗输入文本2：剔除标点符号，部分文本未能够将标点符号分词为独立token
+        # del_puncts = ['.', ',', ';']
+        # for del_p in del_puncts:
+        #     drts_tokens = [[t.replace(del_p, '') if len(t) > 1 else t for t in d] for d in drts_tokens]
+        #     drts_tokens_lemma = [[t.replace(del_p, '') if len(t) > 1 else t for t in d] for d in drts_tokens_lemma]
         # 获取问题和答案的关键词，并转化为词源
-        q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a']
+        q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a', 'then']
         q_kws = get_keywords([qa['key_str_q']], seps=[' and ', ' '], stopwords=q_stopwords, puncts=['.', ',', ';'])
         q_kws = [(kw, lemmer.lemmatize(kw, 'v'), lemmer.lemmatize(kw, 'n')) for kw in q_kws]
         a_kws = get_keywords([qa['key_str_a']], seps=[' and ', ' '], stopwords=['', 'the'], puncts=['.', ',', ';'])
@@ -526,31 +580,58 @@ def label_single_qa_sample(sample, qa, recipe):
         #         direction_tokens = [t.replace(del_p, '') if len(t) > 1 else t for t in direction_tokens]
         #         direction_tokens_lemma = [t.replace(del_p, '') if len(t) > 1 else t for t in direction_tokens_lemma]
 
-        # 遍历操作步骤的文本，判断问题是否匹配，判断答案是否匹配
+        # 遍历操作步骤的文本，判断【问题】是否匹配，判断【答案】是否匹配
         sent_label_flag = [None for _ in new_directions]
-        for idx, (direction_tokens, direction_tokens_lemma) in enumerate(zip(drts_tokens, drts_tokens_lemma)):
-            # 判断当前句是否匹配到问题
+        for idx, direction in enumerate(new_directions):
+            direction_tokens = direction['form'].tolist()
+            direction_tokens_lemma = direction['lemma'].tolist()
+            # 判断当前句是否匹配到【问题】
             match_q_cnt = 0
             for cur_a_kws in q_kws:
                 if token_match(cur_a_kws, direction_tokens + direction_tokens_lemma):
                     match_q_cnt += 1
             q_match_flag = len(q_kws) == match_q_cnt
-            # 判断当前句是否匹配到答案
+            # 判断当前句是否匹配到【答案】
             if qa_type in rule_match_type[1]:
+                # 判断单句是否匹配
                 match_a_cnt = 0
                 for cur_a_kws in a_kws:
                     if token_match(cur_a_kws, direction_tokens + direction_tokens_lemma):
                         match_a_cnt += 1
                 a_match_flag = len(a_kws) == match_a_cnt
+                if a_match_flag is True:
+                    a_match_info = 'token_oneSent'
+                # 若单句不匹配，则尝试双句匹配
+                if (a_match_flag is False) and (idx < len(new_directions) - 1):
+                    direction_tokens_2 = new_directions[idx + 1]['form'].tolist()
+                    direction_tokens_lemma_2 = new_directions[idx + 1]['lemma'].tolist()
+                    match_a_cnt = 0
+                    for cur_a_kws in a_kws:
+                        if token_match(cur_a_kws,
+                                       direction_tokens + direction_tokens_lemma + direction_tokens_2 + direction_tokens_lemma_2):
+                            match_a_cnt += 1
+                    a_match_flag = len(a_kws) == match_a_cnt
+                    if a_match_flag is True:
+                        a_match_info = 'token_twoSent'
             elif qa_type in rule_match_type[2]:
+                # 判断添加了角色信息的文本是否匹配
                 a_match_flag, _ = string_match(answer, direction_tokens)
+                if a_match_flag is True:
+                    a_match_info = 'string_add'
+                # 若改进后的文本无法匹配，则判断原始文本是否匹配
+                if a_match_flag is False:
+                    a_match_flag, _ = string_match(answer, direction_tokens, direction['id'].tolist())
+                    a_match_info = 'string_ori' if a_match_flag else 'None'
             else:
                 a_match_flag = None
                 raise ValueError('出现了意料之外的rule qa_type')
 
             if q_match_flag and a_match_flag:
                 sent_label_flag[idx] = 1
-                match_info = 'full_rule'
+                if 'token_twoSent' == a_match_info:
+                    sent_label_flag[idx + 1] = 1
+                match_info = a_match_info
+                # match_info = 'full_rule'
             else:
                 sent_label_flag[idx] = 0
 
@@ -558,7 +639,9 @@ def label_single_qa_sample(sample, qa, recipe):
         tokens = [token for df in ingredients for token in df['form'].tolist()]
         labels = [0 for _ in tokens]
         # 添加操作步骤的tokens和labels
-        for idx, (direction_tokens, direction_tokens_lemma) in enumerate(zip(drts_tokens, drts_tokens_lemma)):
+        for idx, direction in enumerate(new_directions):
+            direction_tokens = direction['form'].tolist()
+            direction_tokens_lemma = direction['lemma'].tolist()
             # 添加当前步骤的token
             tokens.extend(direction_tokens)
             # 添加当前步骤的label
@@ -570,7 +653,11 @@ def label_single_qa_sample(sample, qa, recipe):
                                    zip(direction_tokens, direction_tokens_lemma)]
                     labels.extend(sent_labels)
                 elif qa_type in rule_match_type[2]:
-                    _, sent_labels = string_match(answer, direction_tokens)
+                    # _, sent_labels = string_match(answer, direction_tokens)
+                    # labels.extend(sent_labels)
+                    a_match_flag, sent_labels = string_match(answer, direction_tokens)
+                    if a_match_flag is False:
+                        a_match_flag, sent_labels = string_match(answer, direction_tokens, direction['id'].tolist())
                     labels.extend(sent_labels)
                 else:
                     raise ValueError('出现了意料之外的rule qa_type')
@@ -722,7 +809,7 @@ def analyze_recipe(recipes, mode):
     ingredient_all = pd.concat([df for recipe in recipes.values() for df in recipe['ingredient_dfs']])
     direction_all = pd.concat([df for recipe in recipes.values() for df in recipe['direction_dfs']])
 
-    # todo useful_cols: upos
+    # useful_cols: upos
     for col in ['entity', 'part1', 'part2', 'hidden', 'coref', 'predicate']:
         print("======{}======".format(col))
         print(ingredient_all[ingredient_all[col] != '_'][ingredient_all.columns[:10]])
@@ -730,7 +817,7 @@ def analyze_recipe(recipes, mode):
         print("======{}======".format(col))
         print(ingredient_all[ingredient_all[col] != '_'][col].value_counts())
 
-    # todo useful_cols: upos, entity, hidden, coref
+    # useful_cols: upos, entity, hidden, coref
     for col in ['part1', 'part2', 'predicate']:
         print("======{}======".format(col))
         print(direction_all[direction_all[col] != '_'][['form', 'part1', 'part2', 'coref', 'predicate']])
