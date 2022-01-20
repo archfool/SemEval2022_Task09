@@ -457,8 +457,6 @@ def expand_hidden_role(directions, ingredients):
                     elif 'Tool' == role_name:
                         add_tokens = join_role_items(role_items, upos_map, entity='TOOL')
                         if (1 == len(add_tokens)) and (add_tokens[0][0] in ['hand', 'hands']):
-                            # if len(add_tokens) > 1:
-                            print(add_tokens)
                             add_tokens[0][0] = 'hand'
                             add_tokens = [['by', 'ADP', 'O-ADD']] \
                                          + add_tokens \
