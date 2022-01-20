@@ -11,6 +11,7 @@ import re
 from conllu import parse
 import nltk.stem as ns
 import copy
+import json
 from init_config import src_dir, data_dir
 
 lemmer = ns.WordNetLemmatizer()
@@ -76,7 +77,7 @@ def parse_recipe(recipe):
     qa_df['seq_id'] = qa_df['seq_id'].astype(int)
     qa_df = qa_df.sort_values(['family_id', 'seq_id']).reset_index(drop=True)
     qa_df['answer'] = qa_df['answer'].apply(lambda x: x.lstrip())
-    qa_df[['question', 'answer', 'method', 'type', 'key_str_q', 'key_str_a', 'keyword_a']] \
+    qa_df[['question', 'answer', 'type', 'key_str_q', 'key_str_a', 'keyword_a']] \
         = qa_df.apply(parse_qa, axis=1, result_type="expand")
 
     # 提取元数据
@@ -127,63 +128,67 @@ def parse_recipe(recipe):
 
 
 type_family_id_dict = {
-    'count': [0],
     'act_first': [4],
+    'count': [0],
+    'place_before_act': [17],
+    'get_result': [3],
+    'result_component': [3],
     'act_ref_igdt': [1],
     'act_ref_place': [2],
-    'act_ref_tool': [2],
-    'result_component': [3],
-    'get_result': [3],
+    'act_ref_tool_or_full_act': [2] + [5, 6, 8, 10, 14],
+    # 'act_ref_tool': [2],
     'act_extent': [5],
-    'full_act': [5, 6, 8, 10, 14],
+    # 'full_act': [5, 6, 8, 10, 14],
     'act_duration': [7],
-    'add_igdt_place': [8, 12],
-    'igdt_act_ref_place': [6, 8, 12, 13],
+    # 'add_igdt_place': [8, 12],
+    'act_igdt_ref_place': [6, 8, 12, 13],
     'igdt_amount': [9],
     'act_reason': [11, 15],
     'act_couple_igdt': [8, 12, 13],
     'act_from_where': [16],
-    'place_before_act': [17],
     'what_do_you': [2, 5, 8, 9, 10],
     'how_would_you': [9],
 }
 type_q_regex_pattern_dict = {
+    'act_first': ['(?P<keyword>.+), which comes first\?'],
     'count': ['How many actions does it take to process the (?P<keyword>.+)\?',
               'How many times is the (?P<keyword>.+) used\?',
               'How many (?P<keyword>.+) are used\?'],
-    'act_first': ['(?P<keyword>.+), which comes first\?'],
+    'place_before_act': ['Where was the (?P<keyword>.+) before (?P<keyword2>.+)\?'],
+    'get_result': ['How did you get the (?P<keyword>.+)\?'],
+    'result_component': ['What\'s in the (?P<keyword>.+)\?'],
     'act_ref_igdt': ['What should be (?P<keyword>.+)\?'],
     'act_ref_place': ['Where should you (?P<keyword>.+)\?'],
-    'act_ref_tool': ['How do you (?P<keyword>.+)\?'],
-    'result_component': ['What\'s in the (?P<keyword>.+)\?'],
-    'get_result': ['How did you get the (?P<keyword>.+)\?'],
+    'act_ref_tool_or_full_act': ['How do you (?P<keyword>.+)\?'],
+    # 'act_ref_tool': ['How do you (?P<keyword>.+)\?'],
     'act_extent': ['To what extent do you (?P<keyword>.+)\?'],
-    'full_act': ['How do you (?P<keyword>.+)\?'],
+    # 'full_act': ['How do you (?P<keyword>.+)\?'],
     'act_duration': ['For how long do you (?P<keyword>.+)\?'],
-    'add_igdt_place': ['Where do you add (?P<keyword>.+)\?'],
-    'igdt_act_ref_place': ['Where do you (?P<keyword>.+)\?'],
+    # 'add_igdt_place': ['Where do you add (?P<keyword>.+)\?'],
+    'act_igdt_ref_place': ['Where do you (?P<keyword>.+)\?'],
     'igdt_amount': ['By how much do you (?P<keyword>.+)\?'],
     'act_reason': ['Why do you (?P<keyword>.+)\?'],
     'act_couple_igdt': ['What do you (?P<keyword>.+) with\?'],
     'act_from_where': ['From where do you (?P<keyword>.+)\?'],
-    'place_before_act': ['Where was the (?P<keyword>.+) before (?P<keyword2>.+)\?'],
     'what_do_you': ['What do you (?P<keyword>.+)\?'],
     'how_would_you': ['How would you (?P<keyword>.+)\?'],
 }
 type_a_regex_pattern_dict = {
-    'count': ['(?P<keyword>.+)'],
     'act_first': ['(?P<keyword>.+)'],
+    'count': ['(?P<keyword>.+)'],
+    'place_before_act': ['(?P<keyword>.+)'],
+    'get_result': ['by (?P<keyword>.+)'],
+    'result_component': ['(?:the )?(?P<keyword>.+)'],
     'act_ref_igdt': ['(?:the )?(?P<keyword>.+)'],
     'act_ref_place': ['(?P<keyword>.+)'],
-    'act_ref_tool': ['by (?P<keyword>hand)', 'by using a (?P<keyword>.+)'],
-    'result_component': ['(?:the )?(?P<keyword>.+)'],
-    'get_result': ['by (?P<keyword>.+)'],
+    'act_ref_tool_or_full_act': ['(?P<keyword>.+)'],
+    # 'act_ref_tool': ['by (?P<keyword>hand)', 'by using a (?P<keyword>.+)'],
     'act_extent': ['(?:until )(?P<keyword>.+)',
                    '(?:till )?(?P<keyword>.+)'],
-    'full_act': ['(?P<keyword>.+)'],
+    # 'full_act': ['(?P<keyword>.+)'],
     'act_duration': ['(?:for )?(?P<keyword>.+)'],
-    'add_igdt_place': ['(?:to )?(?P<keyword>.+)'],
-    'igdt_act_ref_place': ['(?P<keyword>.+)'],
+    # 'add_igdt_place': ['(?:to )?(?P<keyword>.+)'],
+    'act_igdt_ref_place': ['(?P<keyword>.+)'],
     'igdt_amount': ['(?P<keyword>.+)'],
     'act_reason': ['(?:so )(?P<keyword>.+)',
                    '(?:to )(?P<keyword>.+)',
@@ -191,28 +196,28 @@ type_a_regex_pattern_dict = {
                    '(?P<keyword>.+)'],
     'act_couple_igdt': ['(?:with )?(?P<keyword>.+)'],
     'act_from_where': ['(?:from )?(?P<keyword>.+)'],
-    'place_before_act': ['(?P<keyword>.+)'],
     'what_do_you': ['(?P<keyword>.+)'],
     'how_would_you': ['(?P<keyword>.+)'],
 }
 type_sep_dict = {
-    'count': [],
     'act_first': [],
+    'count': [],
+    'place_before_act': [],
+    'get_result': [' and '],
+    'result_component': [' and ', ','],
     'act_ref_igdt': [' and ', ','],
     'act_ref_place': [' and ', ','],
-    'act_ref_tool': [' and ', ','],
-    'result_component': [' and ', ','],
-    'get_result': [' and '],
+    'act_ref_tool_or_full_act': [],
+    # 'act_ref_tool': [' and ', ','],
     'act_extent': [' and '],
-    'full_act': [],
+    # 'full_act': [],
     'act_duration': [],
-    'add_igdt_place': [],
-    'igdt_act_ref_place': [],
+    # 'add_igdt_place': [],
+    'act_igdt_ref_place': [],
     'igdt_amount': [],
     'act_reason': [],
     'act_couple_igdt': [' and ', ','],
     'act_from_where': [],
-    'place_before_act': [],
     'what_do_you': [],
     'how_would_you': [],
 }
@@ -225,8 +230,7 @@ def parse_qa(qa_row):
     answer = qa_row['answer'].replace(r'\"', "").lstrip()
     family_id = qa_row['family_id']
 
-    # method:采用什么方式回答问题。cat_0和cat_4的问题通过规则解答，其余类别的问题通过模型解答。
-    # type:问答类别标签
+    # type: # 问答类别标签
     # key_str_q:问题核心文本
     # key_str_a:答案核心文本
     # keyword_a:答案关键字
@@ -254,30 +258,47 @@ def parse_qa(qa_row):
                 # 判断answer是不是NA
                 if 'N/A' == answer:
                     assert family_id == 18
-                    method = 'no_answer'
                     type = 'no_answer'
                     key_str_q = regex_q.group(1)
                     key_str_a = None
                     keyword_a = None
-                    return question, answer, method, type, key_str_q, key_str_a, keyword_a
+                    return question, answer, type, key_str_q, key_str_a, keyword_a
+                assert regex_q.group(0) == question
+                assert family_id in type_family_id_dict[qa_type]
+                # 判断QA类别
+                type = qa_type
+                # 获取【问题】的关键文本
+                key_str_q = regex_q.group(1)
+
                 # 遍历当前qa类型下的所有answer正则模板
                 for a_regex_pattern in type_a_regex_pattern_dict[qa_type]:
                     regex_a = re.match(a_regex_pattern, answer)
                     # 匹配到answer的正则模板
                     if regex_a:
-                        if qa_type in ['count', 'act_first']:
-                            method = 'rule'
-                        else:
-                            method = 'model'
-                        type = qa_type
-                        assert regex_q.group(0) == question
-                        assert family_id in type_family_id_dict[qa_type]
-                        key_str_q = regex_q.group(1)
                         key_str_a = regex_a.group(1)
                         keyword_a = [key_str_a]
                         for sep in type_sep_dict[qa_type]:
                             keyword_a = [y.strip() for x in keyword_a for y in x.split(sep)]
-                        return question, answer, method, type, key_str_q, key_str_a, keyword_a
+                        return question, answer, type, key_str_q, key_str_a, keyword_a
+
+                # # 遍历当前qa类型下的所有answer正则模板
+                # for a_regex_pattern in type_a_regex_pattern_dict[qa_type]:
+                #     regex_a = re.match(a_regex_pattern, answer)
+                #     # 匹配到answer的正则模板
+                #     if regex_a:
+                #         if qa_type in ['count', 'act_first']:
+                #             method = 'rule'
+                #         else:
+                #             method = 'model'
+                #         type = qa_type
+                #         assert regex_q.group(0) == question
+                #         assert family_id in type_family_id_dict[qa_type]
+                #         key_str_q = regex_q.group(1)
+                #         key_str_a = regex_a.group(1)
+                #         keyword_a = [key_str_a]
+                #         for sep in type_sep_dict[qa_type]:
+                #             keyword_a = [y.strip() for x in keyword_a for y in x.split(sep)]
+                #         return question, answer, method, type, key_str_q, key_str_a, keyword_a
     # assert family_id > 17
     print(qa_row, flush=True)
     raise ValueError('出现了意料之外的QA模式')
@@ -435,7 +456,9 @@ def expand_hidden_role(directions, ingredients):
                         cur_token = []
                     elif 'Tool' == role_name:
                         add_tokens = join_role_items(role_items, upos_map, entity='TOOL')
-                        if add_tokens[0][0] in ['hand', 'hands']:
+                        if (1 == len(add_tokens)) and (add_tokens[0][0] in ['hand', 'hands']):
+                            # if len(add_tokens) > 1:
+                            print(add_tokens)
                             add_tokens[0][0] = 'hand'
                             add_tokens = [['by', 'ADP', 'O-ADD']] \
                                          + add_tokens \
@@ -545,11 +568,12 @@ def label_single_qa_sample(sample, qa, recipe):
     """============================规则============================"""
     # 走规则模型
     rule_match_type = {
-        1: ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act'],  # 关键词匹配
-        2: ['igdt_act_ref_place', 'act_duration', 'act_extent', 'act_reason', 'add_igdt_place', 'act_from_where',
+        # 1: ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act'],  # 关键词匹配
+        1: ['act_ref_place', 'act_ref_tool_or_full_act', 'act_ref_igdt'],  # 关键词匹配
+        2: ['act_igdt_ref_place', 'act_duration', 'act_extent', 'act_reason', 'act_from_where',
             'act_couple_igdt', 'igdt_amount', 'how_would_you', 'what_do_you'],  # 整句匹配
     }
-    if qa_type in ['count', 'act_first', 'place_before_act', 'get_result', 'result_component']:
+    if qa_type in ['act_first', 'count', 'place_before_act', 'get_result', 'result_component']:
         # todo 纯规则，不标注
         return None
     elif qa_type in [tp for types in rule_match_type.values() for tp in types]:
@@ -843,6 +867,12 @@ def analyze_qa(qa_data_df, recipes, mode):
     def qa_case_analyze(recipe_id, question, recipes):
         direction_all = pd.concat([df for df in recipes[recipe_id]['direction_dfs']])
 
+    qa_ori_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
+    qa_ori_case = qa_ori_all[qa_ori_all['question'].apply(lambda x: x.startswith('How do you '))]
+    qa_ori_case = qa_ori_case[qa_ori_case['family_id'] == 2]
+    qa_ori_case = qa_ori_case[qa_ori_case['answer'] != 'by hand']
+    qa_ori_case['answer_prefix'] = qa_ori_case['answer'].apply(lambda x: tuple(x.split(' ')[:3]))
+
     if mode is False:
         return
 
@@ -882,6 +912,8 @@ def analyze_qa(qa_data_df, recipes, mode):
         print(tmp_df['match_info'].value_counts(dropna=False))
     print(qa_data_df['match_info'].value_counts(normalize=True).sort_index(ascending=False) * 100)
     print(qa_data_df['type'].value_counts(normalize=True) * 100)
+    print(qa_data_df[['family_id', 'type']].value_counts(normalize=True).sort_index() * 100)
+    print(qa_data_df[['type', 'family_id']].value_counts(normalize=True).sort_index() * 100)
 
     # case = qa_data_df
     # case = case[case['type'] == 'act_ref_igdt']
@@ -897,6 +929,27 @@ def analyze_qa(qa_data_df, recipes, mode):
     # direction = pd.concat([df for df in recipe['direction_dfs']])
 
     pass
+
+
+# 解析log文件
+def analyze_log(filename):
+    filename = 'log_0120_v1.0_f1-83.log'
+    file_path = os.path.join(data_dir, filename)
+
+    eval_log = []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+        for line in lines:
+            line = line.strip().replace('\'', '\"')
+            try:
+                info = json.loads(line)
+            except:
+                info = {}
+            if isinstance(info, dict) and 'eval_f1' in info.keys():
+                eval_log.append(info)
+
+    log_df = pd.DataFrame(eval_log).set_index('epoch')
+    log_df.to_csv(os.path.join(data_dir, filename.replace('log', 'csv')), sep=',', encoding='gbk')
 
 
 def data_process(dataset_name):
