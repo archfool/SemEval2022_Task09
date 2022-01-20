@@ -880,6 +880,8 @@ def analyze_qa(qa_data_df, recipes, mode):
     for qa_type, tmp_df in qa_data_df.groupby(['type']):
         print("==={}===".format(qa_type))
         print(tmp_df['match_info'].value_counts(dropna=False))
+    print(qa_data_df['match_info'].value_counts(normalize=True).sort_index(ascending=False) * 100)
+    print(qa_data_df['type'].value_counts(normalize=True) * 100)
 
     # case = qa_data_df
     # case = case[case['type'] == 'act_ref_igdt']

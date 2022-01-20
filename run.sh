@@ -1,7 +1,7 @@
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-base-uncased/ \
 --output_dir /media/archfool/data/data/SemEval-2022/task9/result/ \
---resume_from_checkpoint /media/archfool/data/data/SemEval-2022/task9/tmp/checkpoint-12425 \
+#--resume_from_checkpoint /media/archfool/data/data/SemEval-2022/task9/tmp/checkpoint-12425 \
 --dataset_name squad \
 --do_train \
 --do_eval \
@@ -18,7 +18,7 @@ python task9_main.py \
 --save_strategy epoch \
 --save_total_limit 10 \
 --evaluation_strategy steps \
---eval_steps 1000 \
+--eval_steps 500 \
 --dataloader_num_workers 0 \
 --max_steps -1 \
 --logging_first_step True
