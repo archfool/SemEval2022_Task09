@@ -1,4 +1,3 @@
-nohup \
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-base-uncased/ \
 --output_dir /media/archfool/data/data/SemEval-2022/task9/result0120_v1.8/ \
@@ -11,7 +10,7 @@ python task9_main.py \
 --num_train_epochs 10 \
 --gradient_accumulation_steps 4 \
 --seed 1248 \
---disable_tqdm True \
+--disable_tqdm False \
 --max_seq_length 512 \
 --doc_stride 128 \
 --overwrite_output_dir True \
@@ -20,8 +19,10 @@ python task9_main.py \
 --evaluation_strategy epoch \
 --dataloader_num_workers 0 \
 --max_steps -1 \
---logging_first_step True \
-> /media/archfool/data/data/SemEval-2022/task9/log/runoob.log 2>&1 &
+--logging_first_step True
+
+
+# nohup test.py > /media/archfool/data/data/SemEval-2022/task9/log/runoob.log 2>&1 &
 
 #--resume_from_checkpoint /media/archfool/data/data/SemEval-2022/task9/tmp/checkpoint-12425 \
 #--max_train_samples 10 \

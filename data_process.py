@@ -114,7 +114,7 @@ def parse_recipe(recipe):
     ingredient_dfs = [pd.DataFrame([x for x in ingredient]) for ingredient in ingredients]
     direction_dfs = [pd.DataFrame([x for x in direction]) for direction in directions]
     # 根据隐藏角色信息，重写操作步骤文本
-    new_direction_dfs = hidden_role_knowledge_enhance(direction_dfs, ingredient_dfs)
+    new_direction_dfs = hidden_role_knowledge_enhanced(direction_dfs, ingredient_dfs)
     for tmp_dfs in [ingredient_dfs, direction_dfs, new_direction_dfs]:
         for tmp_df in tmp_dfs:
             tmp_df['form'] = tmp_df['form'].apply(lambda x: x.strip().lower())
@@ -327,7 +327,7 @@ def inter_parse_qa_test(qa_df):
 
 
 # 根据隐藏角色信息，重写文本。
-def hidden_role_knowledge_enhance(directions, ingredients):
+def hidden_role_knowledge_enhanced(directions, ingredients):
     def join_role_items(role_items, upos_map, entity):
         role_items_plus = []
         # 标记upos和entity属性
