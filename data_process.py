@@ -16,12 +16,12 @@ from init_config import src_dir, data_dir
 
 lemmer = ns.WordNetLemmatizer()
 
-upos_list = ['NOUN', 'PUNCT', 'VERB', 'ADP', 'DET', 'CCONJ', 'ADJ', 'ADV', 'NUM', 'PART', 'SCONJ', 'PRON', 'AUX', 'SYM',
-             'PROPN', 'X', 'INTJ']
+upos_list = ['other', 'NOUN', 'PUNCT', 'VERB', 'ADP', 'DET', 'CCONJ', 'ADJ', 'ADV', 'NUM', 'PART', 'SCONJ', 'PRON',
+             'AUX', 'SYM', 'PROPN', 'X', 'INTJ']
 upos_map = {upos: id for id, upos in enumerate(upos_list)}
-entity_list = ['O', 'O-ADD', 'B-EVENT', 'B-EXPLICITINGREDIENT', 'B-ADD-INGREDIENT', 'B-ADD-HABITAT', 'I-ADD-INGREDIENT',
-               'I-EXPLICITINGREDIENT', 'B-IMPLICITINGREDIENT', 'B-HABITAT', 'I-ADD-HABITAT', 'B-ADD-TOOL', 'I-HABITAT',
-               'I-IMPLICITINGREDIENT', 'B-TOOL', 'I-TOOL', 'I-ADD-TOOL', 'I-EVENT']
+entity_list = ['other', 'O', 'O-ADD', 'B-EVENT', 'B-EXPLICITINGREDIENT', 'B-ADD-INGREDIENT', 'B-ADD-HABITAT',
+               'I-ADD-INGREDIENT', 'I-EXPLICITINGREDIENT', 'B-IMPLICITINGREDIENT', 'B-HABITAT', 'I-ADD-HABITAT',
+               'B-ADD-TOOL', 'I-HABITAT', 'I-IMPLICITINGREDIENT', 'B-TOOL', 'I-TOOL', 'I-ADD-TOOL', 'I-EVENT']
 entity_map = {entity: id for id, entity in enumerate(entity_list)}
 
 """
@@ -246,13 +246,12 @@ def parse_qa(qa_row):
     # type: # 问答类别标签
     # key_str_q:问题核心文本
     # key_str_a:答案核心文本
-    # keyword_a:答案关键字
 
     # cat_0：3类 统计操作次数，工具使用次数，食材使用个数
-    # cat_4：1类 两个操作里，那个操作更早进行？
     # cat_1：1类 操作所涉及的食材是什么？
     # cat_2：2类 操作所涉及的场所是什么？操作所涉及的工具是什么？
     # cat_3：2类 某个容器里有什么？如何获得中间食材？
+    # cat_4：1类 两个操作里，那个操作更早进行？
     # cat_5：1类 操作执行到什么程度？
     # cat_7：1类 操作执行多长时间？
     # cat_8：1类 在哪里执行操作？ answer的句首大概率要加介词
@@ -317,18 +316,6 @@ def parse_qa(qa_row):
     # assert family_id > 17
     print(qa_row, flush=True)
     raise ValueError('出现了意料之外的QA模式')
-
-
-def get_keywords(str_list, seps, stopwords=[], puncts=[]):
-    keywords = str_list
-    for punct in puncts:
-        keywords = [kw.replace(punct, '') for kw in keywords]
-
-    for sep in seps:
-        keywords = [y.strip() for x in keywords for y in x.split(sep)]
-        keywords = [kw for kw in keywords if kw not in stopwords]
-
-    return keywords
 
 
 def inter_parse_qa_test(qa_df):
@@ -610,61 +597,76 @@ def label_single_qa_sample_bak0120(sample, qa, recipe):
         return sample
 
 
+# 提取文本关键词
+def get_keywords(str_list, seps, stopwords=[], puncts=[]):
+    keywords = str_list
+    for punct in puncts:
+        keywords = [kw.replace(punct, '') for kw in keywords]
+
+    for sep in seps:
+        keywords = [y.strip() for x in keywords for y in x.split(sep)]
+        keywords = [kw for kw in keywords if kw not in stopwords]
+
+    return keywords
+
+
+# 判断target_token（包含多个形态）是否在candidate_tokens中出现
+def token_match(target_tokens, candidate_tokens):
+    for token in target_tokens:
+        if token in candidate_tokens:
+            return True
+    return False
+
+
+# 判断target_string是否在context中出现
+def string_match(target_string, context_tokens, add_tags=None):
+    target_string = target_string.replace(' ', '').replace('(', '\(').replace(')', '\)')
+    context_tokens_bak = copy.deepcopy(context_tokens)
+    # add_tags表示加入角色信息的标注，-1表示当前位置为添加的角色信息
+    # 若add_tags不为None，则从context_tokens中提取出原始文本，进行匹配
+    if add_tags is not None:
+        context_tokens_tmp = []
+        for token, add_tag in zip(context_tokens, add_tags):
+            if add_tag != -1:
+                context_tokens_tmp.append(token)
+        context_tokens = context_tokens_tmp
+    # 合并原始文本的tokens成string，并删除空格
+    context = ''.join(context_tokens).replace(' ', '')
+    # 计算token在文本中的位置偏置（删除了所有空格后的文本）
+    offsets = []
+    cur_offset = 0
+    for token in context_tokens:
+        offsets.append((cur_offset, cur_offset + len(token.replace(' ', ''))))
+        cur_offset = offsets[-1][1]
+    match_flag = False
+    labels = []
+    span_offsets = []
+    for tmp in re.finditer(target_string, context):
+        span_offsets.append(tmp.span())
+    # 如果未匹配到，则返回的labels为空队列。若匹配到，则生成labels。
+    if len(span_offsets) > 0:
+        match_flag = True
+        for offset in offsets:
+            label = 0
+            for span_offset in span_offsets:
+                # todo 添加违规span范围的assert
+                if span_offset[0] <= offset[0] and offset[1] <= span_offset[1]:
+                    label = 1
+                    continue
+            labels.append(label)
+        if add_tags is not None:
+            labels_tmp = []
+            for add_tag in add_tags:
+                if -1 == add_tag:
+                    labels_tmp.append(0)
+                else:
+                    labels_tmp.append(labels.pop(0))
+            labels = labels_tmp
+    return match_flag, labels
+
+
 # 标注一条QA样本
 def label_single_qa_sample(sample, qa, recipe):
-    # 判断target_token（包含多个形态）是否在candidate_tokens中出现
-    def token_match(target_tokens, candidate_tokens):
-        for token in target_tokens:
-            if token in candidate_tokens:
-                return True
-        return False
-
-    # 判断target_string是否在context中出现
-    def string_match(target_string, context_tokens, add_tags=None):
-        target_string = target_string.replace(' ', '').replace('(', '\(').replace(')', '\)')
-        context_tokens_bak = copy.deepcopy(context_tokens)
-        # add_tags表示加入角色信息的标注，-1表示当前位置为添加的角色信息
-        # 若add_tags不为None，则从context_tokens中提取出原始文本，进行匹配
-        if add_tags is not None:
-            context_tokens_tmp = []
-            for token, add_tag in zip(context_tokens, add_tags):
-                if add_tag != -1:
-                    context_tokens_tmp.append(token)
-            context_tokens = context_tokens_tmp
-        # 合并原始文本的tokens成string，并删除空格
-        context = ''.join(context_tokens).replace(' ', '')
-        # 计算token在文本中的位置偏置（删除了所有空格后的文本）
-        offsets = []
-        cur_offset = 0
-        for token in context_tokens:
-            offsets.append((cur_offset, cur_offset + len(token.replace(' ', ''))))
-            cur_offset = offsets[-1][1]
-        match_flag = False
-        labels = []
-        span_offsets = []
-        for tmp in re.finditer(target_string, context):
-            span_offsets.append(tmp.span())
-        # 如果未匹配到，则返回的labels为空队列。若匹配到，则生成labels。
-        if len(span_offsets) > 0:
-            match_flag = True
-            for offset in offsets:
-                label = 0
-                for span_offset in span_offsets:
-                    # todo 添加违规span范围的assert
-                    if span_offset[0] <= offset[0] and offset[1] <= span_offset[1]:
-                        label = 1
-                        continue
-                labels.append(label)
-            if add_tags is not None:
-                labels_tmp = []
-                for add_tag in add_tags:
-                    if -1 == add_tag:
-                        labels_tmp.append(0)
-                    else:
-                        labels_tmp.append(labels.pop(0))
-                labels = labels_tmp
-        return match_flag, labels
-
     ingredients = recipe['ingredient_dfs']
     new_directions = recipe['new_direction_dfs']
     directions = recipe['direction_dfs']
@@ -691,6 +693,8 @@ def label_single_qa_sample(sample, qa, recipe):
             match_info = 'no_answer'
             tokens = [token for df in new_directions for token in df['form'].tolist()]
             sample['tokens'] = tokens
+            sample['upos'] = [upos for df in new_directions for upos in df['upos_id'].tolist()]
+            sample['entity'] = [entity for df in new_directions for entity in df['entity_id'].tolist()]
             sample['label'] = [0 for _ in tokens]
             sample['match_info'] = match_info
             return sample
@@ -762,13 +766,17 @@ def label_single_qa_sample(sample, qa, recipe):
         # tokens = [token for df in ingredients for token in df['form'].tolist()]
         # labels = [0 for _ in tokens]
         tokens = []
+        uposs = []
+        entitys = []
         labels = []
         # 添加操作步骤的tokens和labels
         for idx, direction in enumerate(new_directions):
             direction_tokens = direction['form'].tolist()
             direction_tokens_lemma = direction['lemma'].tolist()
-            # 添加当前步骤的token
+            # 添加当前步骤的token，upos，entity
             tokens.extend(direction_tokens)
+            uposs.extend(direction['upos_id'].tolist())
+            entitys.extend(direction['entity_id'].tolist())
             # 添加当前步骤的label
             if 1 == sent_label_flag[idx]:
                 # todo 当答案匹配到多个位置时，根据问题的位置，找更近的答案
@@ -791,6 +799,8 @@ def label_single_qa_sample(sample, qa, recipe):
 
         assert len(tokens) == len(labels)
         sample['tokens'] = tokens
+        sample['upos'] = uposs
+        sample['entity'] = entitys
         sample['label'] = labels
         sample['match_info'] = match_info
         return sample
@@ -824,13 +834,15 @@ def auto_label(recipe):
             'answer': qa['answer'],
             'context': None,
             'tokens': None,
-            'label': None,
+            'upos': None,
+            'entity': None,
             'offset_maping': None,
+            'label': None,
             'family_id': qa['family_id'],
             'type': qa['type'],
             'match_info': None,
         }
-        # 获取样本的3个字段信息：tokens，label，match_info
+        # 获取样本的5个字段信息：tokens，upos，entity，label，match_info
         sample = label_single_qa_sample(sample, qa, recipe)
         if sample is not None:
             if sample['tokens'] is not None:
@@ -891,7 +903,7 @@ def analyze_qa(qa_data_df, recipes, mode):
     def qa_case_analyze(recipe_id, question, recipes):
         direction_all = pd.concat([df for df in recipes[recipe_id]['direction_dfs']])
 
-    # qa_ori_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
+    qa_ori_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
     # qa_ori_case = qa_ori_all[qa_ori_all['question'].apply(lambda x: x.startswith('How do you '))]
     # qa_ori_case = qa_ori_case[qa_ori_case['family_id'] == 2]
     # qa_ori_case = qa_ori_case[qa_ori_case['answer'] != 'by hand']
@@ -1012,20 +1024,24 @@ def data_process(dataset_name):
         all_samples += single_recipe_qa_samples
     data_df = pd.DataFrame(all_samples)
 
+    # 最终的返回数据
+    dataset = {
+        'question': data_df['question'].to_list(),
+        'context': data_df['context'].to_list(),
+        'upos': data_df['upos'].to_list(),
+        'entity': data_df['entity'].to_list(),
+        'offset_maping': data_df['offset_maping'].to_list(),
+        'label': data_df['label'].to_list(),
+        'id': data_df['id'].to_list(),
+        'answer': data_df['answer'].to_list(),
+    }
+
     # 分析材料清单和操作步骤的额外信息
     analyze_recipe(recipes, False)
 
     # 分析自动标注数据
     analyze_qa(data_df, recipes, True)
 
-    dataset = {
-        'question': data_df['question'].to_list(),
-        'context': data_df['context'].to_list(),
-        'label': data_df['label'].to_list(),
-        'label_offset': data_df['offset_maping'].to_list(),
-        'id': data_df['id'].to_list(),
-        'answer': data_df['answer'].to_list(),
-    }
     if False:
         qa_all = pd.concat([r['qa_df'] for r in recipes]).sort_values(['family_id', 'seq_id']).reset_index(drop=True)
         # inter_parse_qa_test(qa_all)
