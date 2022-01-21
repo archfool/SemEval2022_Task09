@@ -268,31 +268,33 @@ def parse_qa(qa_row):
             regex_q = re.match(q_regex_pattern, question)
             # 匹配到question的正则模板
             if regex_q:
-                # 判断answer是不是NA
-                if 'N/A' == answer:
-                    assert family_id == 18
-                    type = 'no_answer'
-                    key_str_q = regex_q.group(1)
-                    key_str_a = None
-                    # keyword_a = None
-                    return question, answer, type, key_str_q, key_str_a
                 assert regex_q.group(0) == question
-                assert family_id in type_family_id_dict[qa_type]
-                # 判断QA类别
+                # 赋值QA类别
                 type = qa_type
                 # 获取【问题】的关键文本
                 key_str_q = regex_q.group(1)
 
-                # 遍历当前qa类型下的所有answer正则模板
-                for a_regex_pattern in type_a_regex_pattern_dict[qa_type]:
-                    regex_a = re.match(a_regex_pattern, answer)
-                    # 匹配到answer的正则模板
-                    if regex_a:
-                        key_str_a = regex_a.group(1)
-                        # keyword_a = [key_str_a]
-                        # for sep in type_sep_dict[qa_type]:
-                        #     keyword_a = [y.strip() for x in keyword_a for y in x.split(sep)]
-                        return question, answer, type, key_str_q, key_str_a
+                # answer是NA的情况
+                if 'N/A' == answer:
+                    assert family_id == 18
+                    # type = 'no_answer'
+                    # key_str_q = regex_q.group(1)
+                    key_str_a = None
+                    return question, answer, type, key_str_q, key_str_a
+
+                # answer不是是NA的情况
+                else:
+                    assert family_id in type_family_id_dict[qa_type]
+                    # 遍历当前qa类型下的所有answer正则模板
+                    for a_regex_pattern in type_a_regex_pattern_dict[qa_type]:
+                        regex_a = re.match(a_regex_pattern, answer)
+                        # 匹配到answer的正则模板
+                        if regex_a:
+                            key_str_a = regex_a.group(1)
+                            # keyword_a = [key_str_a]
+                            # for sep in type_sep_dict[qa_type]:
+                            #     keyword_a = [y.strip() for x in keyword_a for y in x.split(sep)]
+                            return question, answer, type, key_str_q, key_str_a
 
                 # # 遍历当前qa类型下的所有answer正则模板
                 # for a_regex_pattern in type_a_regex_pattern_dict[qa_type]:
@@ -683,6 +685,16 @@ def label_single_qa_sample(sample, qa, recipe):
         return None
     elif qa_type in [tp for types in rule_match_type.values() for tp in types]:
         match_info = 'cannot_match'
+
+        # 对于无答案情况，进行单独处理，并直接返回结果
+        if 'N/A' == answer:
+            match_info = 'no_answer'
+            tokens = [token for df in new_directions for token in df['form'].tolist()]
+            sample['tokens'] = tokens
+            sample['label'] = [0 for _ in tokens]
+            sample['match_info'] = match_info
+            return sample
+
         # 获取问题和答案的关键词，并转化为词源
         q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a', 'then']
         q_kws = get_keywords([qa['key_str_q']], seps=[' and ', ' '], stopwords=q_stopwords, puncts=['.', ',', ';'])
@@ -782,21 +794,21 @@ def label_single_qa_sample(sample, qa, recipe):
         sample['label'] = labels
         sample['match_info'] = match_info
         return sample
-    elif 'no_answer' == qa_type:
-        match_info = 'no_answer'
-        tokens = [token for df in new_directions for token in df['form'].tolist()]
-        sample['tokens'] = tokens
-        sample['label'] = [0 for _ in tokens]
-        sample['match_info'] = match_info
-        return sample
+    # elif 'no_answer' == qa_type:
+    #     match_info = 'no_answer'
+    #     tokens = [token for df in new_directions for token in df['form'].tolist()]
+    #     sample['tokens'] = tokens
+    #     sample['label'] = [0 for _ in tokens]
+    #     sample['match_info'] = match_info
+    #     return sample
     else:
         raise ValueError('出现了意料之外的qa_type')
 
-    # 没匹配到答案
-    match_info = 'cannot_match'
-    sample['label'] = [0 for _ in tokens]
-    sample['match_info'] = match_info
-    return sample
+    # # 没匹配到答案
+    # match_info = 'cannot_match'
+    # sample['label'] = [0 for _ in tokens]
+    # sample['match_info'] = match_info
+    # return sample
 
 
 # 自动标注
@@ -879,11 +891,11 @@ def analyze_qa(qa_data_df, recipes, mode):
     def qa_case_analyze(recipe_id, question, recipes):
         direction_all = pd.concat([df for df in recipes[recipe_id]['direction_dfs']])
 
-    qa_ori_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
-    qa_ori_case = qa_ori_all[qa_ori_all['question'].apply(lambda x: x.startswith('How do you '))]
-    qa_ori_case = qa_ori_case[qa_ori_case['family_id'] == 2]
-    qa_ori_case = qa_ori_case[qa_ori_case['answer'] != 'by hand']
-    qa_ori_case['answer_prefix'] = qa_ori_case['answer'].apply(lambda x: tuple(x.split(' ')[:3]))
+    # qa_ori_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
+    # qa_ori_case = qa_ori_all[qa_ori_all['question'].apply(lambda x: x.startswith('How do you '))]
+    # qa_ori_case = qa_ori_case[qa_ori_case['family_id'] == 2]
+    # qa_ori_case = qa_ori_case[qa_ori_case['answer'] != 'by hand']
+    # qa_ori_case['answer_prefix'] = qa_ori_case['answer'].apply(lambda x: tuple(x.split(' ')[:3]))
 
     if mode is False:
         return
@@ -1004,7 +1016,7 @@ def data_process(dataset_name):
     analyze_recipe(recipes, False)
 
     # 分析自动标注数据
-    analyze_qa(data_df, recipes, False)
+    analyze_qa(data_df, recipes, True)
 
     dataset = {
         'question': data_df['question'].to_list(),
