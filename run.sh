@@ -1,6 +1,6 @@
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-base-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0120_v1.8/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0120_v2.0/ \
 --dataset_name squad \
 --do_train \
 --do_eval \
@@ -9,7 +9,7 @@ python task9_main.py \
 --learning_rate 3e-5 \
 --num_train_epochs 10 \
 --gradient_accumulation_steps 4 \
---seed 1248 \
+--seed 1234 \
 --disable_tqdm False \
 --max_seq_length 512 \
 --doc_stride 128 \

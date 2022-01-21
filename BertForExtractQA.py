@@ -3,7 +3,6 @@
 Created on 2022/1/21 19:55
 author: ruanzhihao_archfool
 """
-import math
 import torch.utils.checkpoint
 from packaging import version
 from dataclasses import dataclass, field
@@ -12,29 +11,8 @@ import torch.nn as nn
 from typing import Optional, Tuple
 from transformers.file_utils import ModelOutput
 from transformers import BertPreTrainedModel, BertModel, BertTokenizer, BertConfig
-from transformers import Trainer, is_torch_tpu_available
-from transformers.trainer_utils import PredictionOutput
 from transformers.models.bert import modeling_bert
 import transformers
-from transformers import (
-    AutoConfig,
-    AutoModelForQuestionAnswering,
-    AutoTokenizer,
-    DataCollatorWithPadding,
-    EvalPrediction,
-    HfArgumentParser,
-    PreTrainedTokenizerFast,
-    TrainingArguments,
-    default_data_collator,
-    set_seed,
-)
-from transformers.trainer_utils import get_last_checkpoint
-# from transformers.utils import check_min_version
-from transformers.utils.versions import require_version
-
-if is_torch_tpu_available():
-    import torch_xla.core.xla_model as xm
-    import torch_xla.debug.metrics as met
 
 
 class BertForExtractQA(BertPreTrainedModel):
@@ -112,6 +90,11 @@ class BertForExtractQA(BertPreTrainedModel):
             attentions=outputs.attentions,
         )
 
+
+@modeling_bert.add_start_docstrings(
+    "The bare Bert Model transformer outputting raw hidden-states without any specific head on top.",
+    modeling_bert.BERT_START_DOCSTRING,
+)
 class BertModelMultiEmbed(BertPreTrainedModel):
     """
 
@@ -151,23 +134,31 @@ class BertModelMultiEmbed(BertPreTrainedModel):
         for layer, heads in heads_to_prune.items():
             self.encoder.layer[layer].attention.prune_heads(heads)
 
+    @modeling_bert.add_start_docstrings_to_model_forward(
+        modeling_bert.BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
+    @modeling_bert.add_code_sample_docstrings(
+        tokenizer_class=modeling_bert._TOKENIZER_FOR_DOC,
+        checkpoint=modeling_bert._CHECKPOINT_FOR_DOC,
+        output_type=modeling_bert.BaseModelOutputWithPoolingAndCrossAttentions,
+        config_class=modeling_bert._CONFIG_FOR_DOC,
+    )
     def forward(
-        self,
-        input_ids=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        upos_ids=None,
-        entity_ids=None,
-        encoder_hidden_states=None,
-        encoder_attention_mask=None,
-        past_key_values=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        return_dict=None,
+            self,
+            input_ids=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            upos_ids=None,
+            entity_ids=None,
+            encoder_hidden_states=None,
+            encoder_attention_mask=None,
+            past_key_values=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
+            return_dict=None,
     ):
         r"""
         encoder_hidden_states  (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`):
@@ -249,9 +240,9 @@ class BertModelMultiEmbed(BertPreTrainedModel):
         head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
 
         embedding_output = self.embeddings(
+            input_ids=input_ids,
             upos_ids=upos_ids,
             entity_ids=entity_ids,
-            input_ids=input_ids,
             position_ids=position_ids,
             token_type_ids=token_type_ids,
             inputs_embeds=inputs_embeds,
@@ -311,7 +302,8 @@ class BertMultiEmbeddings(nn.Module):
             )
 
     def forward(
-        self, upos_ids,entity_ids,input_ids=None, token_type_ids=None, position_ids=None, inputs_embeds=None, past_key_values_length=0
+            self, input_ids=None, upos_ids=None, entity_ids=None, token_type_ids=None, position_ids=None,
+            inputs_embeds=None, past_key_values_length=0
     ):
         if input_ids is not None:
             input_shape = input_ids.size()
@@ -321,7 +313,7 @@ class BertMultiEmbeddings(nn.Module):
         seq_length = input_shape[1]
 
         if position_ids is None:
-            position_ids = self.position_ids[:, past_key_values_length : seq_length + past_key_values_length]
+            position_ids = self.position_ids[:, past_key_values_length: seq_length + past_key_values_length]
 
         # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
         # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
@@ -348,8 +340,6 @@ class BertMultiEmbeddings(nn.Module):
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
-
-
 
 
 @dataclass
@@ -381,4 +371,3 @@ class ExtractQAModelOutput(ModelOutput):
     logits: torch.FloatTensor = None
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     attentions: Optional[Tuple[torch.FloatTensor]] = None
-

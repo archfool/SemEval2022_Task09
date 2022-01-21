@@ -11,12 +11,7 @@ from datasets import load_dataset, load_metric, Dataset
 
 from data_process import data_process
 
-# sys.path.append(os.path.abspath(os.path.dirname(os.getcwd())))
-sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.getcwd())), 'framework'))
-from DemoExtractQA import extract_qa_manager
-from manager import manager
-from util_tools import logger
-from util_model import ACT2FN
+from ExtractQaTrainer import extract_qa_manager
 
 if __name__ == "__main__":
     # if False:
