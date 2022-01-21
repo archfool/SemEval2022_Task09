@@ -10,7 +10,7 @@ python task9_main.py \
 --num_train_epochs 10 \
 --gradient_accumulation_steps 4 \
 --seed 1248 \
---disable_tqdm False \
+--disable_tqdm True \
 --max_seq_length 512 \
 --doc_stride 128 \
 --overwrite_output_dir True \
