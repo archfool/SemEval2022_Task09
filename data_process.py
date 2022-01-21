@@ -85,7 +85,7 @@ def parse_recipe(recipe):
     qa_df['seq_id'] = qa_df['seq_id'].astype(int)
     qa_df = qa_df.sort_values(['family_id', 'seq_id']).reset_index(drop=True)
     qa_df['answer'] = qa_df['answer'].apply(lambda x: x.lstrip())
-    qa_df[['question', 'answer', 'type', 'key_str_q', 'key_str_a', 'keyword_a']] \
+    qa_df[['question', 'answer', 'type', 'key_str_q', 'key_str_a']] \
         = qa_df.apply(parse_qa, axis=1, result_type="expand")
 
     # 提取元数据
@@ -274,8 +274,8 @@ def parse_qa(qa_row):
                     type = 'no_answer'
                     key_str_q = regex_q.group(1)
                     key_str_a = None
-                    keyword_a = None
-                    return question, answer, type, key_str_q, key_str_a, keyword_a
+                    # keyword_a = None
+                    return question, answer, type, key_str_q, key_str_a
                 assert regex_q.group(0) == question
                 assert family_id in type_family_id_dict[qa_type]
                 # 判断QA类别
@@ -289,10 +289,10 @@ def parse_qa(qa_row):
                     # 匹配到answer的正则模板
                     if regex_a:
                         key_str_a = regex_a.group(1)
-                        keyword_a = [key_str_a]
-                        for sep in type_sep_dict[qa_type]:
-                            keyword_a = [y.strip() for x in keyword_a for y in x.split(sep)]
-                        return question, answer, type, key_str_q, key_str_a, keyword_a
+                        # keyword_a = [key_str_a]
+                        # for sep in type_sep_dict[qa_type]:
+                        #     keyword_a = [y.strip() for x in keyword_a for y in x.split(sep)]
+                        return question, answer, type, key_str_q, key_str_a
 
                 # # 遍历当前qa类型下的所有answer正则模板
                 # for a_regex_pattern in type_a_regex_pattern_dict[qa_type]:
@@ -514,6 +514,100 @@ def hidden_role_knowledge_enhance(directions, ingredients):
     return directions_new
 
 
+def label_single_qa_sample_bak0120(sample, qa, recipe):
+    ingredients = recipe['ingredient_dfs']
+    new_directions = recipe['new_direction_dfs']
+    directions = recipe['direction_dfs']
+
+    """============================模型============================"""
+    # 拼接食材清单文本，拼接操作步骤文本。拼接后的文本，剔除了所有空格。
+    ingredient_tokens = [token for df in ingredients for token in df['form'].tolist()]
+    direction_tokens = [token for df in directions for token in df['form'].tolist()]
+    tokens = ingredient_tokens + direction_tokens
+    sample['tokens'] = tokens
+    text = ''.join(tokens).replace(' ', '')
+    # 计算token在文本中的位置偏置（删除了所有空格后的文本）
+    offsets = []
+    cur_offset = 0
+    for token in tokens:
+        offsets.append((cur_offset, cur_offset + len(token.replace(' ', ''))))
+        cur_offset = offsets[-1][1]
+
+    # 无答案
+    if 'N/A' == qa['answer']:
+        match_info = 'no_answer'
+        sample['label'] = [0 for _ in tokens]
+        sample['match_info'] = match_info
+        return sample
+
+    # 答案文本完全匹配
+    label_offsets = []
+    answer = qa['answer'].replace(' ', '').replace('(', '\(').replace(')', '\)')
+    for tmp in re.finditer(answer, text):
+        label_offsets.append(tmp.span())
+    if len(label_offsets) > 0:
+        if len(label_offsets) == 1:
+            match_info = 'full'
+        else:
+            # todo 要找到最合适的span，进行标注
+            match_info = 'full_duplicate'
+        labels = []
+        for offset in offsets:
+            label = 0
+            for label_offset in label_offsets:
+                if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
+                    label = 1
+                    continue
+            labels.append(label)
+        sample['label'] = labels
+        sample['match_info'] = match_info
+        return sample
+
+    # 答案文本部分匹配
+    label_offsets = []
+    answer = qa['key_str_a'].replace(' ', '').replace('(', '\(').replace(')', '\)')
+    for tmp in re.finditer(answer, text):
+        label_offsets.append(tmp.span())
+    if len(label_offsets) > 0:
+        if len(label_offsets) == 1:
+            match_info = 'partial'
+        else:
+            # todo 要找到最合适的span，进行标注
+            match_info = 'partial_duplicate'
+        labels = []
+        for offset in offsets:
+            label = 0
+            for label_offset in label_offsets:
+                if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
+                    label = 1
+                    continue
+            labels.append(label)
+        sample['label'] = labels
+        sample['match_info'] = match_info
+        return sample
+
+    # 答案关键词匹配
+    label_offsets = []
+    for keyword in qa['keyword_a']:
+        kw = keyword.replace(' ', '').replace('(', '\(').replace(')', '\)')
+        for tmp in re.finditer(kw, text):
+            label_offsets.append(tmp.span())
+    if len(label_offsets) > 0:
+        match_info = 'keywords'
+        # todo 聚合靠得近的关键词
+        labels = []
+        for offset in offsets:
+            label = 0
+            for label_offset in label_offsets:
+                if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
+                    label = 1
+                    continue
+            labels.append(label)
+        sample['label'] = labels
+        sample['match_info'] = match_info
+        return sample
+
+
 # 标注一条QA样本
 def label_single_qa_sample(sample, qa, recipe):
     # 判断target_token（包含多个形态）是否在candidate_tokens中出现
@@ -554,6 +648,7 @@ def label_single_qa_sample(sample, qa, recipe):
             for offset in offsets:
                 label = 0
                 for span_offset in span_offsets:
+                    # todo 添加违规span范围的assert
                     if span_offset[0] <= offset[0] and offset[1] <= span_offset[1]:
                         label = 1
                         continue
@@ -696,96 +791,6 @@ def label_single_qa_sample(sample, qa, recipe):
         return sample
     else:
         raise ValueError('出现了意料之外的qa_type')
-
-    reserve_flag = False
-    if reserve_flag:
-        """============================模型============================"""
-        # 拼接食材清单文本，拼接操作步骤文本。拼接后的文本，剔除了所有空格。
-        ingredient_tokens = [token for df in ingredients for token in df['form'].tolist()]
-        direction_tokens = [token for df in directions for token in df['form'].tolist()]
-        tokens = ingredient_tokens + direction_tokens
-        sample['tokens'] = tokens
-        text = ''.join(tokens).replace(' ', '')
-        # 计算token在文本中的位置偏置（删除了所有空格后的文本）
-        offsets = []
-        cur_offset = 0
-        for token in tokens:
-            offsets.append((cur_offset, cur_offset + len(token.replace(' ', ''))))
-            cur_offset = offsets[-1][1]
-
-        # 无答案
-        if 'N/A' == qa['answer']:
-            match_info = 'no_answer'
-            sample['label'] = [0 for _ in tokens]
-            sample['match_info'] = match_info
-            return sample
-
-        # 答案文本完全匹配
-        label_offsets = []
-        answer = qa['answer'].replace(' ', '').replace('(', '\(').replace(')', '\)')
-        for tmp in re.finditer(answer, text):
-            label_offsets.append(tmp.span())
-        if len(label_offsets) > 0:
-            if len(label_offsets) == 1:
-                match_info = 'full'
-            else:
-                # todo 要找到最合适的span，进行标注
-                match_info = 'full_duplicate'
-            labels = []
-            for offset in offsets:
-                label = 0
-                for label_offset in label_offsets:
-                    if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
-                        label = 1
-                        continue
-                labels.append(label)
-            sample['label'] = labels
-            sample['match_info'] = match_info
-            return sample
-
-        # 答案文本部分匹配
-        label_offsets = []
-        answer = qa['key_str_a'].replace(' ', '').replace('(', '\(').replace(')', '\)')
-        for tmp in re.finditer(answer, text):
-            label_offsets.append(tmp.span())
-        if len(label_offsets) > 0:
-            if len(label_offsets) == 1:
-                match_info = 'partial'
-            else:
-                # todo 要找到最合适的span，进行标注
-                match_info = 'partial_duplicate'
-            labels = []
-            for offset in offsets:
-                label = 0
-                for label_offset in label_offsets:
-                    if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
-                        label = 1
-                        continue
-                labels.append(label)
-            sample['label'] = labels
-            sample['match_info'] = match_info
-            return sample
-
-        # 答案关键词匹配
-        label_offsets = []
-        for keyword in qa['keyword_a']:
-            kw = keyword.replace(' ', '').replace('(', '\(').replace(')', '\)')
-            for tmp in re.finditer(kw, text):
-                label_offsets.append(tmp.span())
-        if len(label_offsets) > 0:
-            match_info = 'keywords'
-            # todo 聚合靠得近的关键词
-            labels = []
-            for offset in offsets:
-                label = 0
-                for label_offset in label_offsets:
-                    if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
-                        label = 1
-                        continue
-                labels.append(label)
-            sample['label'] = labels
-            sample['match_info'] = match_info
-            return sample
 
     # 没匹配到答案
     match_info = 'cannot_match'
