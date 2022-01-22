@@ -1,9 +1,12 @@
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-base-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0120_v2.0/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0122_v2.1.0/ \
 --dataset_name squad \
 --do_train \
 --do_eval \
+--use_upos True \
+--use_entity True \
+--embed_at_first_or_last first \
 --per_device_train_batch_size 2 \
 --per_device_eval_batch_size 2 \
 --learning_rate 3e-5 \
@@ -22,6 +25,7 @@ python task9_main.py \
 --logging_first_step True
 
 
+#--resume_from_checkpoint /media/archfool/data/data/SemEval-2022/task9/result0120_v2.0/checkpoint-28290 \
 # nohup test.py > /media/archfool/data/data/SemEval-2022/task9/log/runoob.log 2>&1 &
 
 #--resume_from_checkpoint /media/archfool/data/data/SemEval-2022/task9/tmp/checkpoint-12425 \

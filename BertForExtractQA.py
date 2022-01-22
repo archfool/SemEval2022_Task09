@@ -20,10 +20,25 @@ class BertForExtractQA(BertPreTrainedModel):
 
     def __init__(self, config):
         super().__init__(config)
+
+        self.config = config
         self.num_labels = config.num_labels
 
-        self.bert = BertModelMultiEmbed(config, add_pooling_layer=False)
-        self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
+        if 'first' == config.embed_at_first_or_last:
+            self.bert = BertModelMultiEmbed(config, add_pooling_layer=False)
+        elif 'last' == config.embed_at_first_or_last:
+            self.bert = BertModel(config, add_pooling_layer=False)
+        else:
+            raise ValueError('config.embed_at_first_or_last value error!')
+
+        if 'first' == config.embed_at_first_or_last:
+            self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
+        elif 'last' == config.embed_at_first_or_last:
+            # todo
+            pass
+        else:
+            raise ValueError('config.embed_at_first_or_last value error!')
+
 
         self.init_weights()
 
@@ -38,41 +53,51 @@ class BertForExtractQA(BertPreTrainedModel):
             upos_ids=None,
             entity_ids=None,
             extract_label=None,
-            start_positions=None,
-            end_positions=None,
             output_attentions=None,
             output_hidden_states=None,
             return_dict=None,
     ):
-        r"""
-        start_positions (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
-            Labels for position (index) of the start of the labelled span for computing the token classification loss.
-            Positions are clamped to the length of the sequence (:obj:`sequence_length`). Position outside of the
-            sequence are not taken into account for computing the loss.
-        end_positions (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
-            Labels for position (index) of the end of the labelled span for computing the token classification loss.
-            Positions are clamped to the length of the sequence (:obj:`sequence_length`). Position outside of the
-            sequence are not taken into account for computing the loss.
-        """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-        outputs = self.bert(
-            input_ids,
-            attention_mask=attention_mask,
-            token_type_ids=token_type_ids,
-            position_ids=position_ids,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            upos_ids=upos_ids,
-            entity_ids=entity_ids,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
+        if 'first' == self.config.embed_at_first_or_last:
+            outputs = self.bert(
+                input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                position_ids=position_ids,
+                head_mask=head_mask,
+                inputs_embeds=inputs_embeds,
+                upos_ids=upos_ids,
+                entity_ids=entity_ids,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+        elif 'last' == self.config.embed_at_first_or_last:
+            outputs = self.bert(
+                input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                position_ids=position_ids,
+                head_mask=head_mask,
+                inputs_embeds=inputs_embeds,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+        else:
+            raise ValueError('config.embed_at_first_or_last value error!')
 
         sequence_output = outputs[0]
 
-        logits = self.qa_outputs(sequence_output)
+        if 'first' == self.config.embed_at_first_or_last:
+            logits = self.qa_outputs(sequence_output)
+        elif 'last' == self.config.embed_at_first_or_last:
+            # todo
+            pass
+        else:
+            raise ValueError('config.embed_at_first_or_last value error!')
+
 
         loss = None
         if extract_label is not None:
@@ -97,7 +122,6 @@ class BertForExtractQA(BertPreTrainedModel):
 )
 class BertModelMultiEmbed(BertPreTrainedModel):
     """
-
     The model can behave as an encoder (with only self-attention) as well as a decoder, in which case a layer of
     cross-attention is added between the self-attention layers, following the architecture described in `Attention is
     all you need <https://arxiv.org/abs/1706.03762>`__ by Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit,
@@ -284,8 +308,8 @@ class BertMultiEmbeddings(nn.Module):
         self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id)
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
-        self.upos_embeddings = nn.Embedding(18, config.hidden_size)
-        self.entity_embeddings = nn.Embedding(19, config.hidden_size)
+        self.upos_embeddings = nn.Embedding(config.upos_size, config.hidden_size)
+        self.entity_embeddings = nn.Embedding(config.entity_size, config.hidden_size)
 
         # self.LayerNorm is not snake-cased to stick with TensorFlow model variable name and be able to load
         # any TensorFlow checkpoint file
@@ -302,8 +326,14 @@ class BertMultiEmbeddings(nn.Module):
             )
 
     def forward(
-            self, input_ids=None, upos_ids=None, entity_ids=None, token_type_ids=None, position_ids=None,
-            inputs_embeds=None, past_key_values_length=0
+            self,
+            input_ids=None,
+            upos_ids=None,
+            entity_ids=None,
+            token_type_ids=None,
+            position_ids=None,
+            inputs_embeds=None,
+            past_key_values_length=0
     ):
         if input_ids is not None:
             input_shape = input_ids.size()
@@ -325,18 +355,28 @@ class BertMultiEmbeddings(nn.Module):
                 token_type_ids = buffered_token_type_ids_expanded
             else:
                 token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=self.position_ids.device)
+        token_type_embeddings = self.token_type_embeddings(token_type_ids)
 
         if inputs_embeds is None:
             inputs_embeds = self.word_embeddings(input_ids)
-        token_type_embeddings = self.token_type_embeddings(token_type_ids)
 
-        upos_embeds = self.upos_embeddings(upos_ids)
-        entity_embeds = self.entity_embeddings(entity_ids)
+        embeddings = inputs_embeds + token_type_embeddings
 
-        embeddings = inputs_embeds + token_type_embeddings + upos_embeds + entity_embeds
+        # 嵌入位置信息
         if self.position_embedding_type == "absolute":
             position_embeddings = self.position_embeddings(position_ids)
             embeddings += position_embeddings
+
+        # 嵌入universal pos信息
+        if upos_ids is not None:
+            upos_embeds = self.upos_embeddings(upos_ids)
+            embeddings += upos_embeds
+
+        # 嵌入cook entity信息
+        if entity_ids is not None:
+            entity_embeds = self.entity_embeddings(entity_ids)
+            embeddings += entity_embeds
+
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -350,10 +390,6 @@ class ExtractQAModelOutput(ModelOutput):
     Args:
         loss (:obj:`torch.FloatTensor` of shape :obj:`(1,)`, `optional`, returned when :obj:`labels` is provided):
             Total span extraction loss is the sum of a Cross-Entropy for the start and end positions.
-        start_logits (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length)`):
-            Span-start scores (before SoftMax).
-        end_logits (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length)`):
-            Span-end scores (before SoftMax).
         hidden_states (:obj:`tuple(torch.FloatTensor)`, `optional`, returned when ``output_hidden_states=True`` is passed or when ``config.output_hidden_states=True``):
             Tuple of :obj:`torch.FloatTensor` (one for the output of the embeddings + one for the output of each layer)
             of shape :obj:`(batch_size, sequence_length, hidden_size)`.

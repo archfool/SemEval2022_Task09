@@ -29,20 +29,16 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from BertForExtractQA import BertForExtractQA
+from data_process import upos_map, entity_map
 
 # sys.path.append(os.path.abspath(os.path.dirname(os.getcwd())))
 sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.getcwd())), 'framework'))
 from util_tools import get_now_date_str, get_now_time_str
 from util_data import tag_offset_mapping
 
-
 import datasets
 from datasets import load_dataset, load_metric
 
-import torch
-import torch.nn as nn
-from transformers.file_utils import ModelOutput
-from transformers import BertPreTrainedModel, BertModel, BertTokenizer, BertConfig
 from transformers import Trainer, is_torch_tpu_available
 from transformers.trainer_utils import PredictionOutput
 import transformers
@@ -154,7 +150,7 @@ class QuestionAnsweringTrainer(Trainer):
         return PredictionOutput(predictions=predictions.predictions, label_ids=predictions.label_ids, metrics=metrics)
 
 
-def postprocess_qa_predictions_v2(
+def postprocess_qa_predictions(
         examples,
         features,
         predictions,
@@ -243,6 +239,17 @@ class ModelArguments:
             "help": "Will use the token generated when running `transformers-cli login` (necessary to use this script "
                     "with private models)."
         },
+    )
+    upos_size: int = field(
+        default=None,
+        metadata={"help": "universal pos type size."},
+    )
+    entity_size: int = field(
+        default=None,
+        metadata={"help": "cook entity type size."},
+    )
+    embed_at_first_or_last: str = field(
+        default=None, metadata={"help": "place the upos/entity embedding at first/last of the model."}
     )
 
 
@@ -336,6 +343,14 @@ class DataTrainingArguments:
                     "and end predictions are not conditioned on one another."
         },
     )
+    use_upos: bool = field(
+        default=True,
+        metadata={"help": "use universal pos knowledge info representation"},
+    )
+    use_entity: bool = field(
+        default=True,
+        metadata={"help": "use cook entity knowledge info representation"},
+    )
 
     def __post_init__(self):
         if (
@@ -369,6 +384,13 @@ def extract_qa_manager(raw_datasets):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+
+    # 获取upos和entity的词表长度信息
+    if model_args.upos_size is None:
+        model_args.upos_size = len(upos_map)
+    if model_args.entity_size is None:
+        model_args.entity_size = len(entity_map)
+
 
     # Setup logging
     logging.basicConfig(
@@ -420,6 +442,11 @@ def extract_qa_manager(raw_datasets):
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
+    # 将upos_size、entity_size、embed_at_first_or_last参数配置到模型config中
+    config.__setattr__('upos_size', model_args.upos_size)
+    config.__setattr__('entity_size', model_args.entity_size)
+    config.__setattr__('embed_at_first_or_last', model_args.embed_at_first_or_last)
+
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
@@ -506,9 +533,11 @@ def extract_qa_manager(raw_datasets):
         # 分词后的token，在原始文本中的offset
         tokenized_examples["token_offset"] = []
         # upos id
-        tokenized_examples["upos_ids"] = []
+        if data_args.use_upos:
+            tokenized_examples["upos_ids"] = []
         # entity id
-        tokenized_examples["entity_ids"] = []
+        if data_args.use_entity:
+            tokenized_examples["entity_ids"] = []
 
         if 'train' == mode:
             # 抽取式QA的标注
@@ -559,10 +588,12 @@ def extract_qa_manager(raw_datasets):
             #         else:
             #             raise ValueError('分词后token的span，跨越了原始token')
 
-            new_upos = tag_offset_mapping(ori_offset_maping, ori_upos, offsets, sequence_ids, 1, 0)
-            new_entity = tag_offset_mapping(ori_offset_maping, ori_entity, offsets, sequence_ids, 1, 0)
-            tokenized_examples["upos_ids"].append(new_upos)
-            tokenized_examples["entity_ids"].append(new_entity)
+            if data_args.use_upos:
+                new_upos = tag_offset_mapping(ori_offset_maping, ori_upos, offsets, sequence_ids, 1, 0)
+                tokenized_examples["upos_ids"].append(new_upos)
+            if data_args.use_entity:
+                new_entity = tag_offset_mapping(ori_offset_maping, ori_entity, offsets, sequence_ids, 1, 0)
+                tokenized_examples["entity_ids"].append(new_entity)
             if 'train' == mode:
                 new_extract_label = tag_offset_mapping(ori_offset_maping, ori_label, offsets, sequence_ids, 1, 0)
                 tokenized_examples["extract_label"].append(new_extract_label)
@@ -656,7 +687,7 @@ def extract_qa_manager(raw_datasets):
     # Post-processing:
     def post_processing_function(examples, features, predictions, stage="eval"):
         # Post-processing: we match the start logits and end logits to answers in the original context.
-        pred_result = postprocess_qa_predictions_v2(
+        pred_result = postprocess_qa_predictions(
             examples=examples,
             features=features,
             predictions=predictions,
@@ -759,4 +790,3 @@ def extract_qa_manager(raw_datasets):
             kwargs["dataset"] = f"{data_args.dataset_name} {data_args.dataset_config_name}"
         else:
             kwargs["dataset"] = data_args.dataset_name
-

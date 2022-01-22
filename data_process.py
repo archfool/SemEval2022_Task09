@@ -943,13 +943,13 @@ def analyze_qa(qa_data_df, recipes, mode):
 
     # qa_data_df['len'] = qa_data_df['tokens'].apply(len)
 
-    for qa_type, tmp_df in qa_data_df.groupby(['type']):
-        print("==={}===".format(qa_type))
-        print(tmp_df['match_info'].value_counts(dropna=False))
-    print(qa_data_df['match_info'].value_counts(normalize=True).sort_index(ascending=False) * 100)
-    print(qa_data_df['type'].value_counts(normalize=True) * 100)
-    print(qa_data_df[['family_id', 'type']].value_counts(normalize=True).sort_index() * 100)
-    print(qa_data_df[['type', 'family_id']].value_counts(normalize=True).sort_index() * 100)
+    # for qa_type, tmp_df in qa_data_df.groupby(['type']):
+    #     print("==={}===".format(qa_type))
+    #     print(tmp_df['match_info'].value_counts(dropna=False))
+    # print(qa_data_df['match_info'].value_counts(normalize=True).sort_index(ascending=False) * 100)
+    # print(qa_data_df['type'].value_counts(normalize=True) * 100)
+    # print(qa_data_df[['family_id', 'type']].value_counts(normalize=True).sort_index() * 100)
+    # print(qa_data_df[['type', 'family_id']].value_counts(normalize=True).sort_index() * 100)
 
     # case = qa_data_df
     # case = case[case['type'] == 'act_ref_igdt']
@@ -966,26 +966,6 @@ def analyze_qa(qa_data_df, recipes, mode):
 
     pass
 
-
-# 解析log文件
-def analyze_log(filename):
-    filename = 'log_0120_v1.0_f1-83.log'
-    file_path = os.path.join(data_dir, filename)
-
-    eval_log = []
-    with open(file_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-        for line in lines:
-            line = line.strip().replace('\'', '\"')
-            try:
-                info = json.loads(line)
-            except:
-                info = {}
-            if isinstance(info, dict) and 'eval_f1' in info.keys():
-                eval_log.append(info)
-
-    log_df = pd.DataFrame(eval_log).set_index('epoch')
-    log_df.to_csv(os.path.join(data_dir, filename.replace('log', 'csv')), sep=',', encoding='gbk')
 
 
 def data_process(dataset_name):
