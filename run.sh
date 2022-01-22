@@ -1,12 +1,12 @@
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-base-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0122_v2.1.0/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0122_v2.1.1/ \
 --dataset_name squad \
 --do_train \
 --do_eval \
---use_upos True \
---use_entity True \
 --embed_at_first_or_last first \
+--use_upos False \
+--use_entity True \
 --per_device_train_batch_size 2 \
 --per_device_eval_batch_size 2 \
 --learning_rate 3e-5 \

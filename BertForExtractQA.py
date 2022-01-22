@@ -34,11 +34,9 @@ class BertForExtractQA(BertPreTrainedModel):
         if 'first' == config.embed_at_first_or_last:
             self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
         elif 'last' == config.embed_at_first_or_last:
-            # todo
-            pass
+            self.qa_outputs = BertMultiEmbdHeads(config)
         else:
             raise ValueError('config.embed_at_first_or_last value error!')
-
 
         self.init_weights()
 
@@ -93,11 +91,9 @@ class BertForExtractQA(BertPreTrainedModel):
         if 'first' == self.config.embed_at_first_or_last:
             logits = self.qa_outputs(sequence_output)
         elif 'last' == self.config.embed_at_first_or_last:
-            # todo
-            pass
+            logits = self.qa_outputs(sequence_output, upos_ids=upos_ids, entity_ids=entity_ids)
         else:
             raise ValueError('config.embed_at_first_or_last value error!')
-
 
         loss = None
         if extract_label is not None:
@@ -380,6 +376,37 @@ class BertMultiEmbeddings(nn.Module):
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
+
+
+class BertMultiEmbdHeads(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.upos_embeddings = nn.Embedding(config.upos_size, config.hidden_size)
+        self.entity_embeddings = nn.Embedding(config.entity_size, config.hidden_size)
+
+        self.fc_1 = nn.Linear(config.hidden_size, config.num_labels)
+
+    def forward(
+            self,
+            sequence_output,
+            upos_ids=None,
+            entity_ids=None,
+    ):
+
+        # 嵌入universal pos信息
+        if upos_ids is not None:
+            upos_embeds = self.upos_embeddings(upos_ids)
+            sequence_output += upos_embeds
+
+        # 嵌入cook entity信息
+        if entity_ids is not None:
+            entity_embeds = self.entity_embeddings(entity_ids)
+            sequence_output += entity_embeds
+
+        logits = self.fc_1(sequence_output)
+        # embeddings = self.LayerNorm(embeddings)
+        # embeddings = self.dropout(embeddings)
+        return logits
 
 
 @dataclass
