@@ -23,7 +23,9 @@ def analyze_log(filename):
     # filename = 'log_0123_v2.1.2_f1-86.log'
     # filename = 'log_0123_v2.1.3_f1-86.log'
     # filename = 'log_0123_v2.1.4_f1-86.log'
-    filename = 'log_0123_v2.1.5_f1-86.log'
+    # filename = 'log_0123_v2.1.5_f1-86.log'
+    # filename = 'log_0123_v2.1.6_f1-86.log'
+    filename = 'log_0123_v2.1.7_f1-86.log'
     file_path = os.path.join(data_dir, filename)
 
     eval_log = []
@@ -47,7 +49,7 @@ if __name__ == "__main__":
     # if False:
     if os.path.exists(u'D:'):
         dataset_model_vali, dataset_rule_vali = data_process('vali')
-        dataset_model_vali = {key: value[:2] for key, value in dataset_model_vali.items()}
+        dataset_model_vali = {key: value[:20] for key, value in dataset_model_vali.items()}
         dataset_model_vali = Dataset.from_dict(dataset_model_vali)
         # dataset_model_test = dataset_model_vali
         dataset_model_test, dataset_rule_test = data_process('test')
@@ -63,6 +65,7 @@ if __name__ == "__main__":
         dataset_model_test = Dataset.from_dict(dataset_model_test)
         datasets_model = {'train': dataset_model_train, 'validation': dataset_model_vali, 'test': dataset_model_test}
 
-    model_pred_result = extract_qa_manager(datasets_model)
     rule_pred_result = rule_for_qa(dataset_rule_test)
+    model_pred_result = extract_qa_manager(datasets_model)
+    used_cols = ['recipe_id', 'question_id', 'question', 'pred_answer', 'answer', 'qa_type']
     print('END')

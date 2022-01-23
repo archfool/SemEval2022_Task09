@@ -24,9 +24,8 @@ entity_list = ['other', 'O', 'O-ADD', 'B-EVENT', 'B-EXPLICITINGREDIENT', 'B-ADD-
                'B-ADD-TOOL', 'I-HABITAT', 'I-IMPLICITINGREDIENT', 'B-TOOL', 'I-TOOL', 'I-ADD-TOOL', 'I-EVENT']
 entity_map = {entity: id for id, entity in enumerate(entity_list)}
 
-qa_type_rule = [['act_first', 'count', 'place_before_act', 'get_result', 'result_component']]
+qa_type_rule = ['act_first', 'count', 'place_before_act', 'get_result', 'result_component']
 qa_type_model = {
-    # 1: ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act'],  # 关键词匹配
     1: ['act_ref_place', 'act_ref_tool_or_full_act', 'act_ref_igdt'],  # 关键词匹配
     2: ['act_igdt_ref_place', 'act_duration', 'act_extent', 'act_reason', 'act_from_where',
         'act_couple_igdt', 'igdt_amount', 'how_would_you', 'what_do_you'],  # 整句匹配
@@ -811,6 +810,7 @@ def label_single_qa_sample(sample, qa, recipe):
         sample['match_info'] = match_info
         return sample
     else:
+        print(qa_type)
         raise ValueError('出现了意料之外的qa_type')
 
 
@@ -832,7 +832,7 @@ def auto_label(recipe):
             'offset_maping': None,
             'label': None,
             'family_id': qa['family_id'],
-            'type': qa['type'],
+            'qa_type': qa['type'],
             'match_info': None,
             # 'ingredients': None,
             # 'directions': None,
@@ -1014,12 +1014,13 @@ def data_process(dataset_name):
         'label': data_model_df['label'].to_list(),
         'id': data_model_df['id'].to_list(),
         'answer': data_model_df['answer'].to_list(),
+        'qa_type': data_model_df['qa_type'].to_list(),
     }
 
     # 最终的返回数据集（规则）
     data_rule_df = data_df['rule' == data_df['match_info']]
     dataset_rule = {
-        'qa_data': data_rule_df[['id', 'question', 'answer', 'type']],
+        'qa_data': data_rule_df[['id', 'question', 'answer', 'qa_type']],
         'recipe_data': recipes,
     }
 

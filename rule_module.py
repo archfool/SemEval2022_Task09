@@ -13,10 +13,24 @@ from init_config import src_dir, data_dir
 from data_process import data_process, qa_type_rule
 
 
+def parse_id(row):
+    id = row['id']
+    recipe_id, question_id, question = id.split('###')
+    family_id = question_id.split('-')[0]
+    return recipe_id, question_id
+
+
 def rule_for_qa(dataset):
     qa_df = dataset['qa_data']
     recipes = dataset['recipe_data']
-    return dataset
+
+    def get_answer_by_rule(row):
+        return None
+
+    qa_df[['recipe_id', 'question_id']] = qa_df.apply(parse_id, axis=1, result_type="expand")
+    qa_df['pred_answer'] = qa_df.apply(get_answer_by_rule)
+
+    return qa_df
 
 
 if __name__ == '__main__':

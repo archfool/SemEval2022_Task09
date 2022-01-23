@@ -26,6 +26,7 @@ import logging
 import os
 from typing import Optional, Tuple
 import numpy as np
+import pandas as pd
 from tqdm.auto import tqdm
 
 from BertForExtractQA import BertForExtractQA
@@ -140,6 +141,22 @@ class QuestionAnsweringTrainer(Trainer):
             return output
 
         predictions = self.post_process_function(predict_examples, predict_dataset, output.predictions, "predict")
+
+        id_qa_type_map = {idx: qa_type for idx, qa_type in zip(predict_examples['id'], predict_examples['qa_type'])}
+        for idx, prediction in enumerate(predictions):
+            recipe_id, question_id, question = prediction['id'].split('###')
+            qa_type = id_qa_type_map[prediction['id']]
+            prediction['recipe_id'] = recipe_id
+            prediction['question_id'] = question_id
+            prediction['question'] = question
+            prediction['qa_type'] = qa_type
+            prediction['pred_answer'] = prediction['prediction_text']
+            prediction['answer'] = prediction['answer_text']
+            predictions[idx] = prediction
+        ret_df = pd.DataFrame(predictions)
+
+        return ret_df
+
         # metrics = self.compute_metrics(predictions)
         #
         # # Prefix all keys with metric_key_prefix + '_'
@@ -147,7 +164,6 @@ class QuestionAnsweringTrainer(Trainer):
         #     if not key.startswith(f"{metric_key_prefix}_"):
         #         metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
         # return PredictionOutput(predictions=predictions.predictions, label_ids=predictions.label_ids, metrics=metrics)
-        return predictions
 
 
 def postprocess_qa_predictions(
