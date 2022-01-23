@@ -24,6 +24,14 @@ entity_list = ['other', 'O', 'O-ADD', 'B-EVENT', 'B-EXPLICITINGREDIENT', 'B-ADD-
                'B-ADD-TOOL', 'I-HABITAT', 'I-IMPLICITINGREDIENT', 'B-TOOL', 'I-TOOL', 'I-ADD-TOOL', 'I-EVENT']
 entity_map = {entity: id for id, entity in enumerate(entity_list)}
 
+qa_type_rule = [['act_first', 'count', 'place_before_act', 'get_result', 'result_component']]
+qa_type_model = {
+    # 1: ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act'],  # 关键词匹配
+    1: ['act_ref_place', 'act_ref_tool_or_full_act', 'act_ref_igdt'],  # 关键词匹配
+    2: ['act_igdt_ref_place', 'act_duration', 'act_extent', 'act_reason', 'act_from_where',
+        'act_couple_igdt', 'igdt_amount', 'how_would_you', 'what_do_you'],  # 整句匹配
+}
+
 """
 CONLL标注格式包含10列，分别为：
 ———————————————————————————
@@ -676,17 +684,14 @@ def label_single_qa_sample(sample, qa, recipe):
     answer = qa['answer']
     qa_type = qa['type']
 
-    rule_match_type = {
-        # 1: ['act_ref_place', 'act_ref_tool', 'act_ref_igdt', 'full_act'],  # 关键词匹配
-        1: ['act_ref_place', 'act_ref_tool_or_full_act', 'act_ref_igdt'],  # 关键词匹配
-        2: ['act_igdt_ref_place', 'act_duration', 'act_extent', 'act_reason', 'act_from_where',
-            'act_couple_igdt', 'igdt_amount', 'how_would_you', 'what_do_you'],  # 整句匹配
-    }
     # 走规则模型
-    if qa_type in ['act_first', 'count', 'place_before_act', 'get_result', 'result_component']:
-        # todo 纯规则，不标注
-        return None
-    elif qa_type in [tp for types in rule_match_type.values() for tp in types]:
+    if qa_type in qa_type_rule:
+        match_info = 'rule'
+        sample['match_info'] = match_info
+        # sample['ingredients'] = ingredients
+        # sample['directions'] = directions
+        return sample
+    elif qa_type in [tp for types in qa_type_model.values() for tp in types]:
         match_info = 'cannot_match'
 
         # 对于无答案情况（包括已标注的‘找不到答案：N/A’和test集的无标注的‘无答案空字段：None’），进行单独处理，并直接返回结果
@@ -720,7 +725,7 @@ def label_single_qa_sample(sample, qa, recipe):
                     match_q_cnt += 1
             q_match_flag = len(q_kws) == match_q_cnt
             # 判断当前句是否匹配到【答案】
-            if qa_type in rule_match_type[1]:
+            if qa_type in qa_type_model[1]:
                 # 判断单句是否匹配
                 match_a_cnt = 0
                 for cur_a_kws in a_kws:
@@ -741,7 +746,7 @@ def label_single_qa_sample(sample, qa, recipe):
                     a_match_flag = len(a_kws) == match_a_cnt
                     if a_match_flag is True:
                         a_match_info = 'token_twoSent'
-            elif qa_type in rule_match_type[2]:
+            elif qa_type in qa_type_model[2]:
                 # 判断添加了角色信息的文本是否匹配
                 a_match_flag, _ = string_match(answer, direction_tokens)
                 if a_match_flag is True:
@@ -782,11 +787,11 @@ def label_single_qa_sample(sample, qa, recipe):
             if 1 == sent_label_flag[idx]:
                 # todo 当答案匹配到多个位置时，根据问题的位置，找更近的答案
                 # todo 添加duplicate说明
-                if qa_type in rule_match_type[1]:
+                if qa_type in qa_type_model[1]:
                     sent_labels = [1 if token_match(tokens, a_kws_flat) else 0 for tokens in
                                    zip(direction_tokens, direction_tokens_lemma)]
                     labels.extend(sent_labels)
-                elif qa_type in rule_match_type[2]:
+                elif qa_type in qa_type_model[2]:
                     # _, sent_labels = string_match(answer, direction_tokens)
                     # labels.extend(sent_labels)
                     a_match_flag, sent_labels = string_match(answer, direction_tokens)
@@ -829,10 +834,15 @@ def auto_label(recipe):
             'family_id': qa['family_id'],
             'type': qa['type'],
             'match_info': None,
+            # 'ingredients': None,
+            # 'directions': None,
         }
-        # 获取样本的5个字段信息：tokens，upos，entity，label，match_info
+        # 获取样本（模型）的5个字段信息：tokens，upos，entity，label，match_info
+        # 获取样本（规则）的1个字段信息：match_info
         sample = label_single_qa_sample(sample, qa, recipe)
-        if sample is not None:
+
+        # 对于模型样本，拼接context，计算offset_maping
+        if 'rule' != sample['match_info']:
             if sample['tokens'] is not None:
                 tks = sample['tokens']
                 cur_offset = -1
@@ -843,7 +853,7 @@ def auto_label(recipe):
                 sample['context'] = ' '.join(tks)
                 sample['offset_maping'] = offset_maping
 
-            samples.append(sample)
+        samples.append(sample)
     return samples
 
 
@@ -993,31 +1003,39 @@ def data_process(dataset_name):
         all_samples += single_recipe_qa_samples
     data_df = pd.DataFrame(all_samples)
 
-    # 最终的返回数据
-    dataset = {
-        'question': data_df['question'].to_list(),
-        'context': data_df['context'].to_list(),
-        'upos': data_df['upos'].to_list(),
-        'entity': data_df['entity'].to_list(),
-        'offset_maping': data_df['offset_maping'].to_list(),
-        'label': data_df['label'].to_list(),
-        'id': data_df['id'].to_list(),
-        'answer': data_df['answer'].to_list(),
+    # 最终的返回数据集（模型）
+    data_model_df = data_df['rule' != data_df['match_info']]
+    dataset_model = {
+        'question': data_model_df['question'].to_list(),
+        'context': data_model_df['context'].to_list(),
+        'upos': data_model_df['upos'].to_list(),
+        'entity': data_model_df['entity'].to_list(),
+        'offset_maping': data_model_df['offset_maping'].to_list(),
+        'label': data_model_df['label'].to_list(),
+        'id': data_model_df['id'].to_list(),
+        'answer': data_model_df['answer'].to_list(),
+    }
+
+    # 最终的返回数据集（规则）
+    data_rule_df = data_df['rule' == data_df['match_info']]
+    dataset_rule = {
+        'qa_data': data_rule_df[['id', 'question', 'answer', 'type']],
+        'recipe_data': recipes,
     }
 
     # 分析材料清单和操作步骤的额外信息
     analyze_recipe(recipes, False)
 
     # 分析自动标注数据
-    analyze_qa(data_df, recipes, True)
+    analyze_qa(data_model_df, recipes, True)
 
     if False:
         qa_all = pd.concat([r['qa_df'] for r in recipes]).sort_values(['family_id', 'seq_id']).reset_index(drop=True)
         # inter_parse_qa_test(qa_all)
         qa_all.to_csv(os.path.join(data_dir, 'qa_val.csv'), index=None, sep='\t', encoding='utf-8')
-    return dataset
+    return dataset_model, dataset_rule
 
 
 if __name__ == "__main__":
-    dataset = data_process('vali')
+    dataset_model, dataset_rule = data_process('vali')
     print('END')

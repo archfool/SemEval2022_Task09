@@ -13,6 +13,7 @@ import json
 from init_config import src_dir, data_dir
 from data_process import data_process
 from trainer import extract_qa_manager
+from rule_module import rule_for_qa
 
 
 # 解析log文件
@@ -45,22 +46,23 @@ if __name__ == "__main__":
     print("BEGIN")
     # if False:
     if os.path.exists(u'D:'):
-        dataset_vali = data_process('vali')
-        dataset_vali = {key: value[:2] for key, value in dataset_vali.items()}
-        dataset_vali = Dataset.from_dict(dataset_vali)
-        # dataset_test = dataset_vali
-        dataset_test = data_process('test')
-        dataset_test = {key: value[:2] for key, value in dataset_test.items()}
-        dataset_test = Dataset.from_dict(dataset_test)
-        datasets = {'train': dataset_vali, 'validation': dataset_vali, 'test': dataset_test}
+        dataset_model_vali, dataset_rule_vali = data_process('vali')
+        dataset_model_vali = {key: value[:2] for key, value in dataset_model_vali.items()}
+        dataset_model_vali = Dataset.from_dict(dataset_model_vali)
+        # dataset_model_test = dataset_model_vali
+        dataset_model_test, dataset_rule_test = data_process('test')
+        dataset_model_test = {key: value[:2] for key, value in dataset_model_test.items()}
+        dataset_model_test = Dataset.from_dict(dataset_model_test)
+        datasets_model = {'train': dataset_model_vali, 'validation': dataset_model_vali, 'test': dataset_model_test}
     else:
-        dataset_train = data_process('train')
-        dataset_train = Dataset.from_dict(dataset_train)
-        dataset_vali = data_process('vali')
-        dataset_vali = Dataset.from_dict(dataset_vali)
-        dataset_test = data_process('test')
-        dataset_test = Dataset.from_dict(dataset_test)
-        datasets = {'train': dataset_train, 'validation': dataset_vali, 'test': dataset_test}
+        dataset_model_train, dataset_rule_train = data_process('train')
+        dataset_model_train = Dataset.from_dict(dataset_model_train)
+        dataset_model_vali, dataset_rule_vali = data_process('vali')
+        dataset_model_vali = Dataset.from_dict(dataset_model_vali)
+        dataset_model_test, dataset_rule_test = data_process('test')
+        dataset_model_test = Dataset.from_dict(dataset_model_test)
+        datasets_model = {'train': dataset_model_train, 'validation': dataset_model_vali, 'test': dataset_model_test}
 
-    extract_qa_manager(datasets)
+    model_pred_result = extract_qa_manager(datasets_model)
+    rule_pred_result = rule_for_qa(dataset_rule_test)
     print('END')

@@ -747,10 +747,11 @@ def extract_qa_manager(raw_datasets):
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
+    pred_results = None
     # Prediction
     if training_args.do_predict:
         logger.info("*** Predict ***")
-        results = trainer.predict(predict_dataset, predict_examples)
+        pred_results = trainer.predict(predict_dataset, predict_examples)
         # metrics = results.metrics
 
         # max_predict_samples = (
@@ -760,3 +761,5 @@ def extract_qa_manager(raw_datasets):
         #
         # trainer.log_metrics("predict", metrics)
         # trainer.save_metrics("predict", metrics)
+
+    return pred_results
