@@ -68,4 +68,16 @@ if __name__ == "__main__":
     rule_pred_result = rule_for_qa(dataset_rule_test)
     model_pred_result = extract_qa_manager(datasets_model)
     used_cols = ['recipe_id', 'question_id', 'question', 'pred_answer', 'answer', 'qa_type']
+    pred_result = pd.concat([rule_pred_result[used_cols], model_pred_result[used_cols]])
+
+    # if True:
+    if not os.path.exists(u'D:'):
+        pred_result['family_id'] = pred_result['question_id'].apply(lambda x: x.split('-')[1])
+        submission_json = {}
+        for recipe_id, tmp_df in pred_result.groupby(['recipe_id']):
+            single_recipe_submission = {}
+            for idx, row in tmp_df.iterrows():
+                single_recipe_submission[row['question_id']] = row['pred_answer']
+            submission_json[recipe_id] = single_recipe_submission
+
     print('END')
