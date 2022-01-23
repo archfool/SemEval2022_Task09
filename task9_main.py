@@ -17,7 +17,12 @@ from trainer import extract_qa_manager
 
 # 解析log文件
 def analyze_log(filename):
-    filename = 'log_0122_v2.0.3_f1-86.log'
+    # filename = 'log_0122_v2.1.0_f1-86.log'
+    # filename = 'log_0123_v2.1.1_f1-86.log'
+    # filename = 'log_0123_v2.1.2_f1-86.log'
+    # filename = 'log_0123_v2.1.3_f1-86.log'
+    # filename = 'log_0123_v2.1.4_f1-86.log'
+    filename = 'log_0123_v2.1.5_f1-86.log'
     file_path = os.path.join(data_dir, filename)
 
     eval_log = []
@@ -31,8 +36,8 @@ def analyze_log(filename):
                 info = {}
             if isinstance(info, dict) and 'eval_f1' in info.keys():
                 eval_log.append(info)
-
     log_df = pd.DataFrame(eval_log).set_index('epoch')
+
     log_df.to_csv(os.path.join(data_dir, filename.replace('log', 'csv')), sep=',', encoding='gbk')
 
 
@@ -41,15 +46,21 @@ if __name__ == "__main__":
     # if False:
     if os.path.exists(u'D:'):
         dataset_vali = data_process('vali')
-        dataset_vali = {key: value[:1] for key, value in dataset_vali.items()}
+        dataset_vali = {key: value[:2] for key, value in dataset_vali.items()}
         dataset_vali = Dataset.from_dict(dataset_vali)
-        datasets = {'train': dataset_vali, 'validation': dataset_vali, 'test': dataset_vali}
+        # dataset_test = dataset_vali
+        dataset_test = data_process('test')
+        dataset_test = {key: value[:2] for key, value in dataset_test.items()}
+        dataset_test = Dataset.from_dict(dataset_test)
+        datasets = {'train': dataset_vali, 'validation': dataset_vali, 'test': dataset_test}
     else:
         dataset_train = data_process('train')
         dataset_train = Dataset.from_dict(dataset_train)
         dataset_vali = data_process('vali')
         dataset_vali = Dataset.from_dict(dataset_vali)
-        datasets = {'train': dataset_train, 'validation': dataset_vali, 'test': dataset_vali}
+        dataset_test = data_process('test')
+        dataset_test = Dataset.from_dict(dataset_test)
+        datasets = {'train': dataset_train, 'validation': dataset_vali, 'test': dataset_test}
 
     extract_qa_manager(datasets)
     print('END')

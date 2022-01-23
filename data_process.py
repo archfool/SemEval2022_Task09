@@ -70,21 +70,30 @@ def parse_recipe(recipe):
             q_list.append((key, value))
         elif key.__contains__('answer'):
             a_list.append((key, value))
-    assert len(q_list) == len(a_list)
     for key, value in q_list + a_list:
         recipe[0].metadata.pop(key)
     qa_list = []
-    for (q_key, q_value), (a_key, a_value) in zip(q_list, a_list):
-        q_id = q_key.split(' ')[1]
-        a_id = a_key.split(' ')[1]
-        assert q_id == a_id
-        family_id, seq_id = q_id.split('-')
-        qa_list.append((family_id, seq_id, q_value, a_value))
+    if len(q_list) == len(a_list):
+        for (q_key, q_value), (a_key, a_value) in zip(q_list, a_list):
+            q_id = q_key.split(' ')[1]
+            a_id = a_key.split(' ')[1]
+            assert q_id == a_id
+            family_id, seq_id = q_id.split('-')
+            qa_list.append((family_id, seq_id, q_value, a_value))
+    elif len(q_list) > 0 and len(a_list) == 0:
+        for (q_key, q_value) in q_list:
+            q_id = q_key.split(' ')[1]
+            family_id, seq_id = q_id.split('-')
+            a_value = None
+            qa_list.append((family_id, seq_id, q_value, a_value))
+    else:
+        raise ValueError("len(q_list) and len(a_list) not match!")
     qa_df = pd.DataFrame(qa_list, columns=['family_id', 'seq_id', 'question', 'answer'])
     qa_df['family_id'] = qa_df['family_id'].astype(int)
     qa_df['seq_id'] = qa_df['seq_id'].astype(int)
     qa_df = qa_df.sort_values(['family_id', 'seq_id']).reset_index(drop=True)
-    qa_df['answer'] = qa_df['answer'].apply(lambda x: x.lstrip())
+    qa_df['question'] = qa_df['question'].apply(lambda x: x.lstrip())
+    qa_df['answer'] = qa_df['answer'].apply(lambda x: x.lstrip() if x is not None else x)
     qa_df[['question', 'answer', 'type', 'key_str_q', 'key_str_a']] \
         = qa_df.apply(parse_qa, axis=1, result_type="expand")
 
@@ -96,8 +105,8 @@ def parse_recipe(recipe):
     for key in metadata.keys():
         recipe[0].metadata.pop('metadata:' + key)
     # 提取菜谱ID
-    # metadata['newdoc_id'] = recipe[0].metadata.pop('newdoc id')
     newdoc_id = recipe[0].metadata.pop('newdoc id')
+
     # 分流食材清单和工序步骤
     ingredients = []
     directions = []
@@ -115,17 +124,25 @@ def parse_recipe(recipe):
     direction_dfs = [pd.DataFrame([x for x in direction]) for direction in directions]
     # 根据隐藏角色信息，重写操作步骤文本
     new_direction_dfs = hidden_role_knowledge_enhanced(direction_dfs, ingredient_dfs)
+    # 对token字段进行清洗：删去左右空格，小写化
     for tmp_dfs in [ingredient_dfs, direction_dfs, new_direction_dfs]:
         for tmp_df in tmp_dfs:
             tmp_df['form'] = tmp_df['form'].apply(lambda x: x.strip().lower())
             tmp_df['lemma'] = tmp_df['lemma'].apply(lambda x: x.strip().lower())
-    for tmp_dfs in [direction_dfs, new_direction_dfs]:
+    # 对食材清单文本的entity字段进行赋值，赋值为【other】
+    for tmp_dfs in [ingredient_dfs]:
+        for tmp_df in tmp_dfs:
+            tmp_df['entity'] = 'other'
+    # 对食材清单文本、操作步骤文本的upos字段和entity字段进行ip映射
+    for tmp_dfs in [ingredient_dfs, direction_dfs, new_direction_dfs]:
         for tmp_df in tmp_dfs:
             tmp_df['upos_id'] = tmp_df['upos'].map(upos_map)
             tmp_df['entity_id'] = tmp_df['entity'].map(entity_map)
+
     # 原始菜谱的文本长度
     metadata['seq_len'] = sum([len(x) for x in directions])
     metadata['seq_len_new'] = sum([len(x) for x in new_direction_dfs])
+
     # 返回新结构的菜谱
     new_recipe = {
         'newdoc_id': newdoc_id,
@@ -240,7 +257,7 @@ type_sep_dict = {
 # qa_all[['question', 'answer', 'method', 'type', 'key_str_q', 'key_str_a', 'keyword_a']] = qa_all.apply(parse_qa, axis=1, result_type="expand")
 def parse_qa(qa_row):
     question = qa_row['question'].replace(r'\"', "").lstrip()
-    answer = qa_row['answer'].replace(r'\"', "").lstrip()
+    answer = qa_row['answer'].replace(r'\"', "").lstrip() if qa_row['answer'] is not None else qa_row['answer']
     family_id = qa_row['family_id']
 
     # type: # 问答类别标签
@@ -273,15 +290,18 @@ def parse_qa(qa_row):
                 # 获取【问题】的关键文本
                 key_str_q = regex_q.group(1)
 
-                # answer是NA的情况
-                if 'N/A' == answer:
-                    assert family_id == 18
-                    # type = 'no_answer'
-                    # key_str_q = regex_q.group(1)
+                # answer是None空字段的情况
+                if answer is None:
                     key_str_a = None
                     return question, answer, type, key_str_q, key_str_a
 
-                # answer不是是NA的情况
+                # answer是'NA'字段的情况
+                if 'N/A' == answer:
+                    assert family_id == 18
+                    key_str_a = None
+                    return question, answer, type, key_str_q, key_str_a
+
+                # answer不是'NA'字段和None空字段的情况
                 else:
                     assert family_id in type_family_id_dict[qa_type]
                     # 遍历当前qa类型下的所有answer正则模板
@@ -295,25 +315,6 @@ def parse_qa(qa_row):
                             #     keyword_a = [y.strip() for x in keyword_a for y in x.split(sep)]
                             return question, answer, type, key_str_q, key_str_a
 
-                # # 遍历当前qa类型下的所有answer正则模板
-                # for a_regex_pattern in type_a_regex_pattern_dict[qa_type]:
-                #     regex_a = re.match(a_regex_pattern, answer)
-                #     # 匹配到answer的正则模板
-                #     if regex_a:
-                #         if qa_type in ['count', 'act_first']:
-                #             method = 'rule'
-                #         else:
-                #             method = 'model'
-                #         type = qa_type
-                #         assert regex_q.group(0) == question
-                #         assert family_id in type_family_id_dict[qa_type]
-                #         key_str_q = regex_q.group(1)
-                #         key_str_a = regex_a.group(1)
-                #         keyword_a = [key_str_a]
-                #         for sep in type_sep_dict[qa_type]:
-                #             keyword_a = [y.strip() for x in keyword_a for y in x.split(sep)]
-                #         return question, answer, method, type, key_str_q, key_str_a, keyword_a
-    # assert family_id > 17
     print(qa_row, flush=True)
     raise ValueError('出现了意料之外的QA模式')
 
@@ -688,14 +689,14 @@ def label_single_qa_sample(sample, qa, recipe):
     elif qa_type in [tp for types in rule_match_type.values() for tp in types]:
         match_info = 'cannot_match'
 
-        # 对于无答案情况，进行单独处理，并直接返回结果
-        if 'N/A' == answer:
-            match_info = 'no_answer'
+        # 对于无答案情况（包括已标注的‘找不到答案：N/A’和test集的无标注的‘无答案空字段：None’），进行单独处理，并直接返回结果
+        if ('N/A' == answer) or (answer is None):
+            match_info = 'no_answer' if answer is not None else 'test_dataset'
             tokens = [token for df in new_directions for token in df['form'].tolist()]
             sample['tokens'] = tokens
             sample['upos'] = [upos for df in new_directions for upos in df['upos_id'].tolist()]
             sample['entity'] = [entity for df in new_directions for entity in df['entity_id'].tolist()]
-            sample['label'] = [0 for _ in tokens]
+            sample['label'] = [0 for _ in tokens] if answer is not None else None
             sample['match_info'] = match_info
             return sample
 
@@ -707,7 +708,7 @@ def label_single_qa_sample(sample, qa, recipe):
         a_kws = [(kw, lemmer.lemmatize(kw, 'v'), lemmer.lemmatize(kw, 'n')) for kw in a_kws]
         a_kws_flat = [y for x in a_kws for y in x]
 
-        # 遍历操作步骤的文本，判断【问题】是否匹配，判断【答案】是否匹配
+        # 遍历操作步骤的文本，先判断【问题】是否匹配，再判断【答案】是否匹配
         sent_label_flag = [None for _ in new_directions]
         for idx, direction in enumerate(new_directions):
             direction_tokens = direction['form'].tolist()
@@ -804,21 +805,8 @@ def label_single_qa_sample(sample, qa, recipe):
         sample['label'] = labels
         sample['match_info'] = match_info
         return sample
-    # elif 'no_answer' == qa_type:
-    #     match_info = 'no_answer'
-    #     tokens = [token for df in new_directions for token in df['form'].tolist()]
-    #     sample['tokens'] = tokens
-    #     sample['label'] = [0 for _ in tokens]
-    #     sample['match_info'] = match_info
-    #     return sample
     else:
         raise ValueError('出现了意料之外的qa_type')
-
-    # # 没匹配到答案
-    # match_info = 'cannot_match'
-    # sample['label'] = [0 for _ in tokens]
-    # sample['match_info'] = match_info
-    # return sample
 
 
 # 自动标注
@@ -829,7 +817,7 @@ def auto_label(recipe):
     samples = []
     for idx, qa in recipe['qa_df'].iterrows():
         sample = {
-            'id': "{}-{}".format(recipe['newdoc_id'], qa['question']),
+            'id': "{}###{}-{}###{}".format(recipe['newdoc_id'], qa['family_id'], qa['seq_id'], qa['question']),
             'question': qa['question'],
             'answer': qa['answer'],
             'context': None,
@@ -967,7 +955,6 @@ def analyze_qa(qa_data_df, recipes, mode):
     pass
 
 
-
 def data_process(dataset_name):
     data_train_dir = os.path.join(data_dir, 'train')
     data_vali_dir = os.path.join(data_dir, 'val')
@@ -982,6 +969,8 @@ def data_process(dataset_name):
         data_uesd_dir = data_train_dir
     elif 'vali' == dataset_name:
         data_uesd_dir = data_vali_dir
+    elif 'test' == dataset_name:
+        data_uesd_dir = data_test_dir
     else:
         data_uesd_dir = None
 

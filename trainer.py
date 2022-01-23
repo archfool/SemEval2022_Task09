@@ -140,14 +140,14 @@ class QuestionAnsweringTrainer(Trainer):
             return output
 
         predictions = self.post_process_function(predict_examples, predict_dataset, output.predictions, "predict")
-        metrics = self.compute_metrics(predictions)
-
-        # Prefix all keys with metric_key_prefix + '_'
-        for key in list(metrics.keys()):
-            if not key.startswith(f"{metric_key_prefix}_"):
-                metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
-
-        return PredictionOutput(predictions=predictions.predictions, label_ids=predictions.label_ids, metrics=metrics)
+        # metrics = self.compute_metrics(predictions)
+        #
+        # # Prefix all keys with metric_key_prefix + '_'
+        # for key in list(metrics.keys()):
+        #     if not key.startswith(f"{metric_key_prefix}_"):
+        #         metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
+        # return PredictionOutput(predictions=predictions.predictions, label_ids=predictions.label_ids, metrics=metrics)
+        return predictions
 
 
 def postprocess_qa_predictions(
@@ -391,7 +391,6 @@ def extract_qa_manager(raw_datasets):
     if model_args.entity_size is None:
         model_args.entity_size = len(entity_map)
 
-
     # Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -528,7 +527,7 @@ def extract_qa_manager(raw_datasets):
             # print(tokenized_examples['input_ids'][0])
             print(tokenizer.convert_ids_to_tokens(tokenized_examples['input_ids'][0]))
 
-        # 样本的id名，由菜谱ID和问题，拼接而成
+        # 样本的id名，由菜谱ID、问题序列号、问题，拼接而成
         tokenized_examples["recipe_id"] = []
         # 分词后的token，在原始文本中的offset
         tokenized_examples["token_offset"] = []
@@ -567,27 +566,7 @@ def extract_qa_manager(raw_datasets):
             ori_upos = examples[upos_column_name][sample_index]
             ori_entity = examples[entity_column_name][sample_index]
 
-            # """将原始样本的token标注（label，upos，entity），映射到分词后的训练样本token"""
-            # # 初始化当前样本的label，全部初始化为0
-            # new_extract_label = [0 for _ in range(len(sequence_ids))]
-            # # 用于记录原始标签的递增id
-            # ori_label_idx = 0
-            # # offset和offsets是分词后的【训练样本】中的token的offset
-            # for idx, (seg_id, offset) in enumerate(zip(sequence_ids, offsets)):
-            #     # 如果当前token不是文档内容（可能是问题文本或者特殊字符cls、sep）则跳过
-            #     if seg_id != context_index:
-            #         continue
-            #     else:
-            #         while offset[0] > ori_offset_maping[ori_label_idx][1]:
-            #             ori_label_idx += 1
-            #         if offset[0] < ori_offset_maping[ori_label_idx][0]:
-            #             continue
-            #         elif offset[1] <= ori_offset_maping[ori_label_idx][1]:
-            #             if 1 == ori_label[ori_label_idx]:
-            #                 new_extract_label[idx] = 1
-            #         else:
-            #             raise ValueError('分词后token的span，跨越了原始token')
-
+            """将原始样本的token标注（label，upos，entity），映射到分词后的训练样本token"""
             if data_args.use_upos:
                 new_upos = tag_offset_mapping(ori_offset_maping, ori_upos, offsets, sequence_ids, 1, 0)
                 tokenized_examples["upos_ids"].append(new_upos)
@@ -772,21 +751,12 @@ def extract_qa_manager(raw_datasets):
     if training_args.do_predict:
         logger.info("*** Predict ***")
         results = trainer.predict(predict_dataset, predict_examples)
-        metrics = results.metrics
+        # metrics = results.metrics
 
-        max_predict_samples = (
-            data_args.max_predict_samples if data_args.max_predict_samples is not None else len(predict_dataset)
-        )
-        metrics["predict_samples"] = min(max_predict_samples, len(predict_dataset))
-
-        trainer.log_metrics("predict", metrics)
-        trainer.save_metrics("predict", metrics)
-
-    kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "question-answering"}
-    if data_args.dataset_name is not None:
-        kwargs["dataset_tags"] = data_args.dataset_name
-        if data_args.dataset_config_name is not None:
-            kwargs["dataset_args"] = data_args.dataset_config_name
-            kwargs["dataset"] = f"{data_args.dataset_name} {data_args.dataset_config_name}"
-        else:
-            kwargs["dataset"] = data_args.dataset_name
+        # max_predict_samples = (
+        #     data_args.max_predict_samples if data_args.max_predict_samples is not None else len(predict_dataset)
+        # )
+        # metrics["predict_samples"] = min(max_predict_samples, len(predict_dataset))
+        #
+        # trainer.log_metrics("predict", metrics)
+        # trainer.save_metrics("predict", metrics)
