@@ -25,7 +25,8 @@ def analyze_log(filename):
     # filename = 'log_0123_v2.1.4_f1-86.log'
     # filename = 'log_0123_v2.1.5_f1-86.log'
     # filename = 'log_0123_v2.1.6_f1-86.log'
-    filename = 'log_0123_v2.1.7_f1-86.log'
+    # filename = 'log_0123_v2.1.7_f1-86.log'
+    filename = 'log_0123_v2.1.8_f1-86.log'
     file_path = os.path.join(data_dir, filename)
 
     eval_log = []
@@ -41,13 +42,13 @@ def analyze_log(filename):
                 eval_log.append(info)
     log_df = pd.DataFrame(eval_log).set_index('epoch')
 
-    log_df.to_csv(os.path.join(data_dir, filename.replace('log', 'csv')), sep=',', encoding='gbk')
+    # log_df.to_csv(os.path.join(data_dir, filename.replace('log', 'csv')), sep=',', encoding='gbk')
 
 
 if __name__ == "__main__":
     print("BEGIN")
-    # if False:
-    if os.path.exists(u'D:'):
+    if False:
+    # if os.path.exists(u'D:'):
         dataset_model_vali, dataset_rule_vali = data_process('vali')
         dataset_model_vali = {key: value[:20] for key, value in dataset_model_vali.items()}
         dataset_model_vali = Dataset.from_dict(dataset_model_vali)
@@ -70,14 +71,19 @@ if __name__ == "__main__":
     used_cols = ['recipe_id', 'question_id', 'question', 'pred_answer', 'answer', 'qa_type']
     pred_result = pd.concat([rule_pred_result[used_cols], model_pred_result[used_cols]])
 
-    # if True:
-    if not os.path.exists(u'D:'):
+    if True:
+    # if not os.path.exists(u'D:'):
         pred_result['family_id'] = pred_result['question_id'].apply(lambda x: x.split('-')[1])
-        submission_json = {}
+        pred_result['pred_answer'] = ''
+
+        r2vq_pred_result = {}
         for recipe_id, tmp_df in pred_result.groupby(['recipe_id']):
             single_recipe_submission = {}
             for idx, row in tmp_df.iterrows():
                 single_recipe_submission[row['question_id']] = row['pred_answer']
-            submission_json[recipe_id] = single_recipe_submission
+            r2vq_pred_result[recipe_id] = single_recipe_submission
+
+        with open(os.path.join(src_dir, 'r2vq_pred.txt'), 'w', encoding='utf-8') as f:
+            json.dump(r2vq_pred_result, f)
 
     print('END')

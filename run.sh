@@ -1,7 +1,7 @@
 nohup \
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-base-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0123_v2.1.9/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0124_v2.1.9/ \
 --dataset_name squad \
 --do_train \
 --do_eval \
