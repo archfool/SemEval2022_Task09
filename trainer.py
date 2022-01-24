@@ -102,6 +102,18 @@ class QuestionAnsweringTrainer(Trainer):
             eval_preds = self.post_process_function(eval_examples, eval_dataset, output.predictions)
             metrics = self.compute_metrics(eval_preds)
 
+            # 打印评估结果至文件
+            filename = 'metric_record.log'
+            with open(os.path.join(self.args.output_dir, filename), 'a+', encoding='utf-8') as f:
+                record = {
+                    'epoch': self.state.epoch if self.is_in_train else -1,
+                    'step': self.state.global_step,
+                    'f1': metrics['f1'],
+                    'exact_match': metrics['exact_match'],
+                }
+                json.dump(record, f)
+                f.write('\n')
+
             # Prefix all keys with metric_key_prefix + '_'
             for key in list(metrics.keys()):
                 if not key.startswith(f"{metric_key_prefix}_"):
@@ -218,10 +230,10 @@ def postprocess_qa_predictions(
             pred_answer = 'N/A'
         pred_result.append({'id': recipe_id, 'answer_text': id_answer_dict[recipe_id], 'prediction_text': pred_answer})
 
-    file_path = os.path.join(output_dir, "SE2022_task9_result_{}.txt".format(get_now_date_str()))
-    with open(file_path, "w", encoding='utf-8') as f:
-        for item in pred_result:
-            f.write("{}\n{}\n{}\n\n".format(item['id'], item['answer_text'], item['prediction_text']))
+    # file_path = os.path.join(output_dir, "SE2022_task9_result_{}.txt".format(get_now_date_str()))
+    # with open(file_path, "w", encoding='utf-8') as f:
+    #     for item in pred_result:
+    #         f.write("{}\n{}\n{}\n\n".format(item['id'], item['answer_text'], item['prediction_text']))
 
     return pred_result
 

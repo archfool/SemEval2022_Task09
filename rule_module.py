@@ -25,7 +25,7 @@ def rule_for_qa(dataset):
     recipes = dataset['recipe_data']
 
     def get_answer_by_rule(row):
-        return None
+        return ''
 
     qa_df[['recipe_id', 'question_id']] = qa_df.apply(parse_id, axis=1, result_type="expand")
     qa_df['pred_answer'] = qa_df.apply(get_answer_by_rule)

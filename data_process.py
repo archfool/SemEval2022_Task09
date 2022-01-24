@@ -910,10 +910,10 @@ def analyze_qa(qa_data_df, recipes, mode):
     if mode is False:
         return
 
-    # qa_data_df.sort_values(['type'])[['type', 'question', 'answer']].to_csv(os.path.join(data_dir, 'qa.txt'),
+    # qa_data_df.sort_values(['qa_type'])[['qa_type', 'question', 'answer']].to_csv(os.path.join(data_dir, 'qa.txt'),
     #                                                                         sep='\x01', index=None)
 
-    # case_df = qa_data_df[(qa_data_df['type'] == 'act_ref_igdt') & (qa_data_df['match_info'] == 'cannot_match')]
+    # case_df = qa_data_df[(qa_data_df['qa_type'] == 'act_ref_igdt') & (qa_data_df['match_info'] == 'cannot_match')]
     # for idx in range(len(case_df)):
     #     row = case_df.iloc[idx]
     #     recipe_id = '-'.join(row['id'].split('-')[:2])
@@ -934,27 +934,27 @@ def analyze_qa(qa_data_df, recipes, mode):
     # case = qa_all[qa_all['type'] == type]
     # case['the'] = case['key_str_q'].apply(lambda x: x.split(' ')[1])
     # case = case[case['the'] != 'the']
-    # case2 = qa_data_df[qa_data_df['type'] == type][['id', 'question', 'answer', 'match_info']]
+    # case2 = qa_data_df[qa_data_df['qa_type'] == type][['id', 'question', 'answer', 'match_info']]
 
     # case['key_str_q'].apply(
     #     lambda x: get_keywords([x], seps=[' and ', ' '], stopwords=['', 'the', 'with'], puncts=['.', ',', ';']))
 
     # qa_data_df['len'] = qa_data_df['tokens'].apply(len)
 
-    # for qa_type, tmp_df in qa_data_df.groupby(['type']):
+    # for qa_type, tmp_df in qa_data_df.groupby(['qa_type']):
     #     print("==={}===".format(qa_type))
     #     print(tmp_df['match_info'].value_counts(dropna=False))
     # print(qa_data_df['match_info'].value_counts(normalize=True).sort_index(ascending=False) * 100)
-    # print(qa_data_df['type'].value_counts(normalize=True) * 100)
-    # print(qa_data_df[['family_id', 'type']].value_counts(normalize=True).sort_index() * 100)
-    # print(qa_data_df[['type', 'family_id']].value_counts(normalize=True).sort_index() * 100)
+    print(qa_data_df['qa_type'].value_counts(normalize=True) * 100)
+    print(qa_data_df[['family_id', 'qa_type']].value_counts(normalize=True).sort_index() * 100)
+    print(qa_data_df[['qa_type', 'family_id']].value_counts(normalize=True).sort_index() * 100)
 
     # case = qa_data_df
-    # case = case[case['type'] == 'act_ref_igdt']
+    # case = case[case['qa_type'] == 'act_ref_igdt']
     # case['question'].apply(lambda x: x[15:].split(' ')[:2][1:]).value_counts()
     #
     # case = qa_data_df
-    # case = case[case['type'] == 'act_ref_place']
+    # case = case[case['qa_type'] == 'act_ref_place']
     # case = case[case['match_info'] == 'cannot_match']
     # idx = 222
     # recipe_id = '-'.join(case['id'].loc[idx].split('-')[:2])
@@ -966,6 +966,8 @@ def analyze_qa(qa_data_df, recipes, mode):
 
 
 def data_process(dataset_name):
+    print("\nProcessing {} Dataset......".format(dataset_name.upper()))
+
     data_train_dir = os.path.join(data_dir, 'train')
     data_vali_dir = os.path.join(data_dir, 'val')
     data_test_dir = os.path.join(data_dir, 'test')

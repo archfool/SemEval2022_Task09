@@ -26,8 +26,10 @@ def analyze_log(filename):
     # filename = 'log_0123_v2.1.5_f1-86.log'
     # filename = 'log_0123_v2.1.6_f1-86.log'
     # filename = 'log_0123_v2.1.7_f1-86.log'
-    filename = 'log_0123_v2.1.8_f1-86.log'
-    file_path = os.path.join(data_dir, filename)
+    # filename = 'log_0123_v2.1.8_f1-86.log'
+    # filename = 'log_0124_v2.1.9_f1-86.log'
+    filename = 'log_0124_v2.1.10_f1-86.log'
+    file_path = os.path.join(data_dir, 'log', filename)
 
     eval_log = []
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -47,8 +49,8 @@ def analyze_log(filename):
 
 if __name__ == "__main__":
     print("BEGIN")
-    if False:
-    # if os.path.exists(u'D:'):
+    # if False:
+    if os.path.exists(u'D:'):
         dataset_model_vali, dataset_rule_vali = data_process('vali')
         dataset_model_vali = {key: value[:20] for key, value in dataset_model_vali.items()}
         dataset_model_vali = Dataset.from_dict(dataset_model_vali)
@@ -66,24 +68,31 @@ if __name__ == "__main__":
         dataset_model_test = Dataset.from_dict(dataset_model_test)
         datasets_model = {'train': dataset_model_train, 'validation': dataset_model_vali, 'test': dataset_model_test}
 
+    # 规则结果
     rule_pred_result = rule_for_qa(dataset_rule_test)
+    # 模型结果
     model_pred_result = extract_qa_manager(datasets_model)
+    # 汇总规则和模型的结果
     used_cols = ['recipe_id', 'question_id', 'question', 'pred_answer', 'answer', 'qa_type']
     pred_result = pd.concat([rule_pred_result[used_cols], model_pred_result[used_cols]])
 
-    if True:
-    # if not os.path.exists(u'D:'):
-        pred_result['family_id'] = pred_result['question_id'].apply(lambda x: x.split('-')[1])
-        pred_result['pred_answer'] = ''
+    # 测试用
+    if os.path.exists(u'D:'):
+        pred_result['family_id'] = pred_result['question_id'].apply(lambda x: x.split('-')[0])
+        # pred_result['pred_answer'] = None
+        pred_result['pred_answer'] = pred_result['family_id'].apply(lambda x: None if x == '18' else '')
 
-        r2vq_pred_result = {}
-        for recipe_id, tmp_df in pred_result.groupby(['recipe_id']):
-            single_recipe_submission = {}
-            for idx, row in tmp_df.iterrows():
-                single_recipe_submission[row['question_id']] = row['pred_answer']
-            r2vq_pred_result[recipe_id] = single_recipe_submission
+    # 整理预测结果为提交格式
+    r2vq_pred_result = {}
+    for recipe_id, tmp_df in pred_result.groupby(['recipe_id']):
+        single_recipe_submission = {}
+        for idx, row in tmp_df.iterrows():
+            single_recipe_submission[row['question_id']] = row['pred_answer']
+        r2vq_pred_result[recipe_id] = single_recipe_submission
 
-        with open(os.path.join(src_dir, 'r2vq_pred.txt'), 'w', encoding='utf-8') as f:
-            json.dump(r2vq_pred_result, f)
+    # 生成提交文件
+    submit_filename = 'local_r2vq_pred.json' if os.path.exists(u'D:') else 'r2vq_pred.json'
+    with open(os.path.join(src_dir, submit_filename), 'w', encoding='utf-8') as f:
+        json.dump(r2vq_pred_result, f)
 
     print('END')

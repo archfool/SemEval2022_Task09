@@ -1,7 +1,7 @@
 nohup \
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-base-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0124_v2.1.9/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0124_v2.1.10/ \
 --dataset_name squad \
 --do_train \
 --do_eval \
@@ -13,7 +13,7 @@ python task9_main.py \
 --learning_rate 3e-5 \
 --num_train_epochs 10 \
 --gradient_accumulation_steps 4 \
---seed 1234 \
+--seed 4321 \
 --disable_tqdm False \
 --max_seq_length 512 \
 --doc_stride 128 \
@@ -24,7 +24,7 @@ python task9_main.py \
 --dataloader_num_workers 0 \
 --max_steps -1 \
 --logging_first_step True \
- > /media/archfool/data/data/SemEval-2022/task9/log/runoob.log 2>&1 &
+ >> /media/archfool/data/data/SemEval-2022/task9/log/runoob.log 2>&1 &
 
 
 
