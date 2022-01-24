@@ -9,9 +9,10 @@ import pandas as pd
 import numpy as np
 import re
 from conllu import parse
-import nltk.stem as ns
 import copy
 import json
+import nltk.stem as ns
+
 from init_config import src_dir, data_dir
 
 lemmer = ns.WordNetLemmatizer()
@@ -24,12 +25,14 @@ entity_list = ['other', 'O', 'O-ADD', 'B-EVENT', 'B-EXPLICITINGREDIENT', 'B-ADD-
                'B-ADD-TOOL', 'I-HABITAT', 'I-IMPLICITINGREDIENT', 'B-TOOL', 'I-TOOL', 'I-ADD-TOOL', 'I-EVENT']
 entity_map = {entity: id for id, entity in enumerate(entity_list)}
 
-qa_type_rule = ['act_first', 'count', 'place_before_act', 'get_result', 'result_component']
+qa_type_rule = ['act_first', 'place_before_act', 'count_times', 'count_nums', 'get_result', 'result_component']
 qa_type_model = {
     1: ['act_ref_place', 'act_ref_tool_or_full_act', 'act_ref_igdt'],  # 关键词匹配
     2: ['act_igdt_ref_place', 'act_duration', 'act_extent', 'act_reason', 'act_from_where',
         'act_couple_igdt', 'igdt_amount', 'how_would_you', 'what_do_you'],  # 整句匹配
 }
+
+q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a', 'then']
 
 """
 CONLL标注格式包含10列，分别为：
@@ -126,6 +129,11 @@ def parse_recipe(recipe):
         elif 'ingredients' == sent.metadata['sent_id'].split('::')[1]:
             ingredients.append(sent)
         else:
+            _, step_idx, sent_idx = sent.metadata['sent_id'].split('::')
+            step_idx = str(int(step_idx[4:]))
+            sent_idx = str(int(sent_idx[4:]))
+            for i in range(len(sent)):
+                sent[i]['id'] = '{}.{}.{}'.format(step_idx, sent_idx, str(sent[i]['id']))
             directions.append(sent)
     ingredient_dfs = [pd.DataFrame([x for x in ingredient]) for ingredient in ingredients]
     direction_dfs = [pd.DataFrame([x for x in direction]) for direction in directions]
@@ -166,7 +174,8 @@ def parse_recipe(recipe):
 
 type_family_id_dict = {
     'act_first': [4],
-    'count': [0],
+    'count_times': [0],
+    'count_nums': [0],
     'place_before_act': [17],
     'get_result': [3],
     'result_component': [3],
@@ -188,10 +197,10 @@ type_family_id_dict = {
 }
 type_q_regex_pattern_dict = {
     'act_first': ['(?P<keyword>.+), which comes first\?'],
-    'count': ['How many actions does it take to process the (?P<keyword>.+)\?',
-              'How many times is the (?P<keyword>.+) used\?',
-              'How many (?P<keyword>.+) are used\?'],
-    'place_before_act': ['Where was the (?P<keyword>.+) before (?P<keyword2>.+)\?'],
+    'count_times': ['How many actions does it take to process the (?P<keyword>.+)\?',
+                    'How many times is the (?P<keyword>.+) used\?'],
+    'count_nums': ['How many (?P<keyword>.+) are used\?'],
+    'place_before_act': ['Where was the (?P<keyword>.+) before it was (?P<keyword2>.+)\?'],
     'get_result': ['How did you get the (?P<keyword>.+)\?'],
     'result_component': ['What\'s in the (?P<keyword>.+)\?'],
     'act_ref_igdt': ['What should be (?P<keyword>.+)\?'],
@@ -212,7 +221,8 @@ type_q_regex_pattern_dict = {
 }
 type_a_regex_pattern_dict = {
     'act_first': ['(?P<keyword>.+)'],
-    'count': ['(?P<keyword>.+)'],
+    'count_times': ['(?P<keyword>.+)'],
+    'count_nums': ['(?P<keyword>.+)'],
     'place_before_act': ['(?P<keyword>.+)'],
     'get_result': ['by (?P<keyword>.+)'],
     'result_component': ['(?:the )?(?P<keyword>.+)'],
@@ -238,7 +248,8 @@ type_a_regex_pattern_dict = {
 }
 type_sep_dict = {
     'act_first': [],
-    'count': [],
+    'count_times': [],
+    'count_nums': [],
     'place_before_act': [],
     'get_result': [' and '],
     'result_component': [' and ', ','],
@@ -295,7 +306,11 @@ def parse_qa(qa_row):
                 # 赋值QA类别
                 type = qa_type
                 # 获取【问题】的关键文本
-                key_str_q = regex_q.group(1)
+
+                if 'place_before_act' == qa_type:
+                    key_str_q = regex_q.group(1) + '|' + regex_q.group(2)
+                else:
+                    key_str_q = regex_q.group(1)
 
                 # answer是None空字段的情况
                 if answer is None:
@@ -620,8 +635,8 @@ def get_keywords(str_list, seps, stopwords=[], puncts=[]):
 
 # 判断target_token（包含多个形态）是否在candidate_tokens中出现
 def token_match(target_tokens, candidate_tokens):
-    for token in target_tokens:
-        if token in candidate_tokens:
+    for target_token in target_tokens:
+        if target_token in candidate_tokens:
             return True
     return False
 
@@ -687,6 +702,7 @@ def label_single_qa_sample(sample, qa, recipe):
     if qa_type in qa_type_rule:
         match_info = 'rule'
         sample['match_info'] = match_info
+        sample['context'] = qa['key_str_q']
         # sample['ingredients'] = ingredients
         # sample['directions'] = directions
         return sample
@@ -705,7 +721,6 @@ def label_single_qa_sample(sample, qa, recipe):
             return sample
 
         # 获取问题和答案的关键词，并转化为词源
-        q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a', 'then']
         q_kws = get_keywords([qa['key_str_q']], seps=[' and ', ' '], stopwords=q_stopwords, puncts=['.', ',', ';'])
         q_kws = [(kw, lemmer.lemmatize(kw, 'v'), lemmer.lemmatize(kw, 'n')) for kw in q_kws]
         a_kws = get_keywords([qa['key_str_a']], seps=[' and ', ' '], stopwords=['', 'the'], puncts=['.', ',', ';'])
@@ -910,8 +925,8 @@ def analyze_qa(qa_data_df, recipes, mode):
     if mode is False:
         return
 
-    # qa_data_df.sort_values(['qa_type'])[['qa_type', 'question', 'answer']].to_csv(os.path.join(data_dir, 'qa.txt'),
-    #                                                                         sep='\x01', index=None)
+    # path = os.path.join(data_dir, 'QAs.txt')
+    # qa_data_df.sort_values(['qa_type'])[['qa_type', 'question', 'answer']].to_csv(path, sep='\x01', index=None)
 
     # case_df = qa_data_df[(qa_data_df['qa_type'] == 'act_ref_igdt') & (qa_data_df['match_info'] == 'cannot_match')]
     # for idx in range(len(case_df)):
@@ -1022,7 +1037,7 @@ def data_process(dataset_name):
     # 最终的返回数据集（规则）
     data_rule_df = data_df['rule' == data_df['match_info']]
     dataset_rule = {
-        'qa_data': data_rule_df[['id', 'question', 'answer', 'qa_type']],
+        'qa_data': data_rule_df[['id', 'question', 'answer', 'qa_type', 'context']],
         'recipe_data': recipes,
     }
 
@@ -1030,12 +1045,8 @@ def data_process(dataset_name):
     analyze_recipe(recipes, False)
 
     # 分析自动标注数据
-    analyze_qa(data_model_df, recipes, True)
+    analyze_qa(data_df, recipes, True)
 
-    if False:
-        qa_all = pd.concat([r['qa_df'] for r in recipes]).sort_values(['family_id', 'seq_id']).reset_index(drop=True)
-        # inter_parse_qa_test(qa_all)
-        qa_all.to_csv(os.path.join(data_dir, 'qa_val.csv'), index=None, sep='\t', encoding='utf-8')
     return dataset_model, dataset_rule
 
 

@@ -131,3 +131,5 @@ dmypy.json
 
 .idea/
 
+local_r2vq_pred.json
+local_r2vq_pred.zip
