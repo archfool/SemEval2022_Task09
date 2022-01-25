@@ -77,6 +77,8 @@ if __name__ == "__main__":
     model_pred_result = extract_qa_manager(datasets_model)
     # 汇总规则和模型的结果
     used_cols = ['recipe_id', 'question_id', 'question', 'pred_answer', 'answer', 'qa_type']
+    print(model_pred_result)
+    print(rule_pred_result)
     pred_result = pd.concat([rule_pred_result[used_cols], model_pred_result[used_cols]])
 
     # 测试用

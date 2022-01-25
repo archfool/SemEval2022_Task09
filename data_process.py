@@ -351,6 +351,7 @@ def inter_parse_qa_test(qa_df):
 
 # 根据隐藏角色信息，重写文本。
 def hidden_role_knowledge_enhanced(directions, ingredients):
+    # 将连续几个角色文本，连接起来
     def join_role_items(role_items, upos_map, entity):
         role_items_plus = []
         # 标记upos和entity属性
@@ -377,7 +378,35 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
         else:
             return 'PUNCT' == direction_dfs[-1]['upos'].iloc[-1]
 
+    directions_df = pd.concat(directions)
 
+    # 生成coref知识增强字典
+    coref_dict = {coref: [] for coref in set(directions_df['coref'].to_list()) if coref != '_'}
+    coref = None
+    tokens = []
+    for _, row in directions_df.iterrows():
+        if row['coref'] != '_':
+            coref = row['coref']
+            tokens = [row['form']]
+        elif row['entity'].startswith('I-'):
+            tokens.append(row['form'])
+        else:
+            if coref is not None:
+                coref_dict[coref].append('_'.join(tokens).lower())
+                coref = None
+    coref_dict = {key: list(set(value)) for key, value in coref_dict.items()}
+
+    coref_enhanced_dict = {}
+    for coref, values in coref_dict.items():
+        coref_str = coref.split('.')[0]
+        if len(values) == 1 and coref_str == values[0]:
+            continue
+        else:
+            target_coref_tokens = coref_str.split('_')
+            for value_tokens in [value.split('_') for value in values]:
+                if len(set(value_tokens)) == len(set(value_tokens + target_coref_tokens)):
+                    target_coref_tokens = value_tokens
+                coref_enhanced_dict[coref] = '.'.join(['_'.join(target_coref_tokens), coref.split('.', 1)[1]])
 
     upos_map = pd.concat([x for x in ingredients + directions]).set_index(['form'])['upos'].to_dict()
     directions_new = []
@@ -967,7 +996,9 @@ def analyze_qa(qa_data_df, recipes, mode):
     # for qa_type, tmp_df in qa_data_df.groupby(['qa_type']):
     #     print("==={}===".format(qa_type))
     #     print(tmp_df['match_info'].value_counts(dropna=False))
-    # print(qa_data_df['match_info'].value_counts(normalize=True).sort_index(ascending=False) * 100)
+    print(qa_data_df['match_info'].value_counts(normalize=True).sort_index(ascending=False) * 100)
+    print(qa_data_df['rule' != qa_data_df['match_info']]['match_info'].value_counts(normalize=True).sort_index(
+        ascending=False) * 100)
     print(qa_data_df['qa_type'].value_counts(normalize=True) * 100)
     print(qa_data_df[['family_id', 'qa_type']].value_counts(normalize=True).sort_index() * 100)
     print(qa_data_df[['qa_type', 'family_id']].value_counts(normalize=True).sort_index() * 100)
