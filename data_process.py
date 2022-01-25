@@ -377,6 +377,8 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
         else:
             return 'PUNCT' == direction_dfs[-1]['upos'].iloc[-1]
 
+
+
     upos_map = pd.concat([x for x in ingredients + directions]).set_index(['form'])['upos'].to_dict()
     directions_new = []
     for direction in directions:
@@ -416,6 +418,12 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
                     print('token内的标点位置异常:{}'.format(row['form']))
             else:
                 token_df = pd.DataFrame([row.to_dict()], columns=direction.columns)
+
+            # 添加coref信息
+            if '_' != row['coref']:
+                # print('')
+                pass
+
             # 处理不含角色信息的token
             if '_' == row['hidden']:
                 direction_new.append(token_df)

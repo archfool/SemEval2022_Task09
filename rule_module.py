@@ -17,6 +17,18 @@ from init_config import src_dir, data_dir
 from data_process import data_process, token_match, qa_type_rule, type_q_regex_pattern_dict, get_keywords, q_stopwords
 
 
+def parse_hidden(hiddens, reserve_idx=False):
+    if hiddens == '_':
+        return {}
+
+    hidden_dict = {hidden.split('=')[0]: [hid for hid in hidden.split('=')[1].split(':')]
+                   for hidden in hiddens.split('|')}
+    if reserve_idx is False:
+        hidden_dict = {hid_name: [hid_value.split('.')[0] for hid_value in hid_values]
+                       for hid_name, hid_values in hidden_dict.items()}
+    return hidden_dict
+
+
 def parse_id(row):
     id = row['id']
     recipe_id, question_id, question = id.split('###')
@@ -125,8 +137,176 @@ def act_first(question, direction_dfs):
     return ret
 
 
-def place_before_act(igdt, act, direction_dfs):
-    return ''
+def place_before_act(igdt, act, new_direction_dfs, old_direction_dfs):
+    # 1.重定位igdt名字
+
+    # 2.找到同时包含igdt和act的句子
+    # 提取关键词
+    keywords = get_keywords([igdt, act], seps=[',', ' '], stopwords=q_stopwords, puncts=['.', ';'])
+    keywords = [(kw, lemmer.lemmatize(kw, 'v'), lemmer.lemmatize(kw, 'n')) for kw in keywords]
+    sent_idx = -1
+    find_keywords_flag = False
+    for sent_idx, new_direction in enumerate(new_direction_dfs):
+        new_direction_tokens = new_direction['form'].tolist()
+        new_direction_tokens_lemma = new_direction['lemma'].tolist()
+        keywords_match_cnt = 0
+        # 统计匹配到的关键词的数量
+        for keyword in keywords:
+            if token_match(keyword, new_direction_tokens + new_direction_tokens_lemma):
+                keywords_match_cnt += 1
+        # 判断关键词是否全被匹配到
+        if keywords_match_cnt == len(keywords):
+            find_keywords_flag = True
+            break
+
+    # 3.若找到关键句，则定位act的token位置
+    verb_token_idx = -1
+    if find_keywords_flag:
+        # 提取动词关键词
+        verb_keyword = get_keywords([act], seps=[',', ' '], stopwords=q_stopwords, puncts=['.', ';'])[0]
+        verb_keyword = lemmer.lemmatize(verb_keyword, 'v')
+        # 匹配动词关键词
+        for verb_token_idx in range(len(old_direction_dfs[sent_idx]) - 1, -1, -1):
+            if (verb_keyword == old_direction_dfs[sent_idx]['lemma'].iloc[verb_token_idx]) \
+                    or (verb_keyword == old_direction_dfs[sent_idx]['form'].iloc[verb_token_idx]):
+                break
+    # 若找不到关键句，则直接返回None
+    else:
+        return None
+
+    # 在定位到igdt/act的所在行后，找到相关的place
+    def get_igdt_or_act_from_arg_and_entity(row, direction, focus_type, target_type):
+        for col_name in ['arg{}'.format(str(i)) for i in range(1, 11)]:
+            # if row[col_name] in ['B-{}'.format(focus_type), 'I-{}'.format(focus_type)]:
+            if row[col_name] != '_':
+                # verb_rows = direction[direction[col_name] == 'B-V']
+
+                target_rows = direction[
+                    (direction[col_name] != '_')
+                    & (
+                            (direction['entity'] == 'B-{}'.format(target_type))
+                            | (direction['entity'] == 'I-{}'.format(target_type))
+                    )
+                    ]
+
+                # 未提取到信息
+                if len(target_rows) == 0:
+                    continue
+                # 提取place信息
+                elif 'HABITAT' == target_type:
+                    places = set([place.split('.')[0] for place in target_rows['coref'].tolist()])
+                    place = ' '.join([token for place in places for token in place.split('_')])
+                    # place = ' '.join(target_rows['form'].tolist())
+                    return place
+                # 提取act信息
+                elif 'EVENT' == target_type:
+                    target_rows = target_rows[target_rows['entity'] == 'B-EVENT']
+                    if len(target_rows) == 0:
+                        continue
+                    else:
+                        hiddens = parse_hidden(target_rows.iloc[0]['hidden'], False)
+                        # 若hidden列包含Habitat字段信息，则直接取出place
+                        if 'Habitat' in hiddens.keys():
+                            place = hiddens['Habitat'][0].replace('_', ' ')
+                            return place
+                else:
+                    raise ValueError("")
+
+                # locaion_rows = direction[
+                #     (
+                #             (direction[col_name] == 'B-{}'.format(target_type[0]))
+                #             | (direction[col_name] == 'I-{}'.format(target_type[0]))
+                #     )
+                #     &
+                #     (
+                #             (direction['entity'] == 'B-{}'.format(target_type[1]))
+                #             | (direction['entity'] == 'I-{}').format(target_type[1])
+                #     )
+                #     ]
+                # if len(locaion_rows)==0:
+                #     place = None
+                # else:
+                #     place = ' '.join(locaion_rows['form'].tolist())
+                # return place
+        return None
+
+    # 4.往前反向搜索，找到igdt的place
+    place = None
+    # 获取igdt的字符串
+    igdt_keywords = get_keywords([igdt], seps=[',', ' ', ' and '], stopwords=[], puncts=['.', ';'])
+    igdt_keywords_str = '_'.join(igdt_keywords)
+    # 遍历操作步骤的所有sents
+    for igdt_sent_idx in range(sent_idx, -1, -1):
+        old_direction = old_direction_dfs[igdt_sent_idx]
+        start_token_idx = verb_token_idx if igdt_sent_idx == sent_idx else len(old_direction_dfs[igdt_sent_idx])
+        # 遍历一条sent下的所有rows
+        for igdt_token_idx in range(start_token_idx - 1, -1, -1):
+            row = old_direction.iloc[igdt_token_idx]
+            # 提取coref列的目标食材信息
+            cur_igdt = row['coref'].split('.')[0]
+            # 提取hidden的目标食材信息
+            hiddens = parse_hidden(row['hidden'], reserve_idx=False)
+            cur_igdt_list = hiddens.get('Drop', []) + hiddens.get('Shadow', [])
+
+            # 当前词为名词，判断是否在coref列显式命中食材
+            if igdt_keywords_str == cur_igdt:
+                # 尝试从原始上下文文本中，获取显式位置信息
+                habitat = get_igdt_or_act_from_arg_and_entity(row, old_direction, 'Patient', 'HABITAT')
+                # 原始文本中，显式包含位置信息
+                if habitat is not None:
+                    place = habitat
+                # 原始文本中，不包含位置信息。则去上下文的动词处，寻找是否隐式包含place/HABITAT信息。
+                else:
+                    place = get_igdt_or_act_from_arg_and_entity(row, old_direction, 'Patient', 'EVENT')
+            # 当前词为动词，判断是否在hidden列隐式命中食材
+            elif igdt_keywords_str in cur_igdt_list:
+                # 若hidden列包含Habitat字段信息，则直接取出place
+                if 'Habitat' in hiddens.keys():
+                    place = hiddens['Habitat'][0].replace('_', ' ')
+                # 若hidden列未包含Habitat字段信息，则找act的上下文tokens，尝试提取location/Habitat
+                else:
+                    place = get_igdt_or_act_from_arg_and_entity(row, old_direction, 'V', 'HABITAT')
+            # 都没命中，进入进入下一个token的过程
+            else:
+                place = None
+
+            # 如果命中place，则返回
+            if place is not None:
+                return place
+
+            # # 4.1-1.1.判断coref的当前位置是不是目标食材
+            # # cur_igdt = row['coref'].split('.')[0]
+            # # 4.1-1.2.若在名词所在行的coref列找到igdt，那么接下去找它对应的place
+            # if cur_igdt == igdt_keywords_str:
+            #     # 4.1-1.2-1.若在名词所在行的coref列找到igdt，那么接下去找它对应的place
+            #     place = get_igdt_or_act_from_arg_and_entity(row, old_direction, 'Patient', ['Location', 'HABITAT'])
+            #     # for col_name in ['arg{}'.format(str(i)) for i in range(1, 11)]:
+            #     #     if row[col_name] in ['B-Patient', 'I-Patient']:
+            #     #         verb_rows = old_direction[old_direction[col_name] == 'B-V']
+            #     #         locaion_rows = old_direction[
+            #     #             ((old_direction[col_name] == 'B-Location') | (old_direction[col_name] == 'I-Location'))
+            #     #             & ((old_direction['entity'] == 'B-HABITAT') | (old_direction['entity'] == 'I-HABITAT'))
+            #     #         ]
+            #     #         break
+            #     if place is None:
+            #         pass
+            # else:
+            #     # 4.1-2.1.判断hidden的当前位置是否包含目标食材
+            #     # hiddens = parse_hidden(row['hidden'], reserve_idx=False)
+            #     # cur_igdt_list = hiddens.get('Drop', []) + hiddens.get('Shadow', [])
+            #     # 4.1-2.2.若在动词所在行的hidden列，它的Shadow/Drop角色信息中找到igdt，那么接下去找它对应的place
+            #     if igdt_keywords_str in cur_igdt_list:
+            #         # 4.1-2.2-1.动词所在行的hidden列，存在Habitat角色信息
+            #         habitat = hiddens.get('Habitat', [''])[0].replace('_', ' ')
+            #         if habitat != '':
+            #             place = habitat
+            #         # 4.1-2.2-2.动词所在行的hidden列，不存在Habitat角色信息。则挖掘动词的相关位置信息。
+            #         else:
+            #             place = get_igdt_or_act_from_arg_and_entity(row, old_direction, 'V', ['Location', 'HABITAT'])
+            # # 4.1-3.没在当前token定位到目标食材
+            # place = None
+
+    return place
 
 
 def rule_for_qa(dataset):
@@ -140,16 +320,16 @@ def rule_for_qa(dataset):
         answer = row['answer']
         key_context = row['context']
         direction_dfs = recipe['direction_dfs']
-        directions = pd.concat(direction_dfs)
         new_direction_dfs = recipe['new_direction_dfs']
+        directions = pd.concat(direction_dfs)
 
         if 'act_first' == qa_type:
             ret = act_first(key_context, new_direction_dfs)
             return ret
         elif 'place_before_act' == qa_type:
             igdt, act = key_context.split('|')
-            place = place_before_act(igdt, act, new_direction_dfs)
-            return place
+            place = place_before_act(igdt, act, new_direction_dfs, direction_dfs)
+            return 'N/A' if place is None else place
         elif 'count_times' == qa_type:
             count_hidden = count_times_hidden(directions['hidden'], key_context)
             count_coref = count_times_coref(directions['coref'], key_context)
@@ -187,7 +367,7 @@ if __name__ == '__main__':
     rule_result = rule_for_qa(dataset_rule_vali)
     print(rule_result['qa_type'].value_counts(normalize=True))
     rule_result['flag'] = rule_result.apply(lambda r: 1 if str(r['answer']) == str(r['pred_answer']) else 0, axis=1)
-    for qa_type in ['act_first', 'count_times', 'count_nums']:
+    for qa_type in ['act_first', 'place_before_act', 'count_times', 'count_nums']:
         print('=========={}=========='.format(qa_type))
         print(rule_result[rule_result['qa_type'] == qa_type]['flag'].value_counts(normalize=True))
     print('END')
