@@ -9,6 +9,7 @@ import sys
 import pandas as pd
 from datasets import load_dataset, load_metric, Dataset
 import json
+import re
 
 from init_config import src_dir, data_dir
 from data_process import data_process
@@ -37,24 +38,49 @@ def analyze_log(filename=None):
         file_path = os.path.join(data_dir, 'log', filename)
 
         eval_log = []
+        seed = None
+        first_or_last_flag = None
+        upos_flag = None
+        entity_flag = None
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             for line in lines:
                 line = line.strip().replace('\'', '\"')
+
+                if re.match(r'--seed (?P<keyword>.+) \\', line):
+                    seed = re.match(r'--seed (?P<keyword>.+) \\', line).group(1)
+                if re.match(r'--embed_at_first_or_last (?P<keyword>.+) \\', line):
+                    first_or_last = re.match(r'--embed_at_first_or_last (?P<keyword>.+) \\', line).group(1)
+                if re.match(r'--use_upos (?P<keyword>.+) \\', line):
+                    use = re.match(r'--use_upos (?P<keyword>.+) \\', line).group(1)
+                    upos_flag = 'use_upos' if use=='True' else 'no_upos'
+                if re.match(r'--use_entity (?P<keyword>.+) \\', line):
+                    use = re.match(r'--use_entity (?P<keyword>.+) \\', line).group(1)
+                    entity_flag = 'use_entity' if use=='True' else 'no_entity'
+
                 try:
                     info = json.loads(line)
                 except:
                     info = {}
                 if isinstance(info, dict) and 'eval_f1' in info.keys():
                     eval_log.append(info)
-        log_df = pd.DataFrame(eval_log).set_index('epoch')
+
+        # log_df = pd.DataFrame(eval_log).set_index('epoch')
+        log_df = pd.DataFrame(eval_log)
+        log_df['seed'] = seed
+        log_df['first_or_last'] = first_or_last
+        log_df['upos'] = upos_flag
+        log_df['entity'] = entity_flag
+
         log_dfs.append(log_df)
 
-        log_df.to_csv(os.path.join(data_dir, 'log', filename.replace('.log', '.csv')), sep=',', encoding='gbk')
+    all_log_df = pd.concat(log_dfs)
+    # all_log_df.to_csv(os.path.join(data_dir, 'log', filename.replace('.log', '.csv')), sep=',', encoding='gbk')
+    all_log_df.to_csv(os.path.join(data_dir, 'log', 'log_v2.1.csv'), sep=',', encoding='gbk')
 
 
 if __name__ == "__main__":
-    analyze_log()
+    # analyze_log()
     print("BEGIN")
     # if False:
     if os.path.exists(u'D:'):
