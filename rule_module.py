@@ -146,6 +146,7 @@ def place_before_act(igdt, act, new_direction_dfs, old_direction_dfs):
     keywords = [(kw, lemmer.lemmatize(kw, 'v'), lemmer.lemmatize(kw, 'n')) for kw in keywords]
     sent_idx = -1
     find_keywords_flag = False
+    # 遍历所有操作步骤
     for sent_idx, new_direction in enumerate(new_direction_dfs):
         new_direction_tokens = new_direction['form'].tolist()
         new_direction_tokens_lemma = new_direction['lemma'].tolist()
@@ -212,22 +213,6 @@ def place_before_act(igdt, act, new_direction_dfs, old_direction_dfs):
                 else:
                     raise ValueError("")
 
-                # locaion_rows = direction[
-                #     (
-                #             (direction[col_name] == 'B-{}'.format(target_type[0]))
-                #             | (direction[col_name] == 'I-{}'.format(target_type[0]))
-                #     )
-                #     &
-                #     (
-                #             (direction['entity'] == 'B-{}'.format(target_type[1]))
-                #             | (direction['entity'] == 'I-{}').format(target_type[1])
-                #     )
-                #     ]
-                # if len(locaion_rows)==0:
-                #     place = None
-                # else:
-                #     place = ' '.join(locaion_rows['form'].tolist())
-                # return place
         return None
 
     # 4.往前反向搜索，找到igdt的place
@@ -274,37 +259,6 @@ def place_before_act(igdt, act, new_direction_dfs, old_direction_dfs):
             if place is not None:
                 return place
 
-            # # 4.1-1.1.判断coref的当前位置是不是目标食材
-            # # cur_igdt = row['coref'].split('.')[0]
-            # # 4.1-1.2.若在名词所在行的coref列找到igdt，那么接下去找它对应的place
-            # if cur_igdt == igdt_keywords_str:
-            #     # 4.1-1.2-1.若在名词所在行的coref列找到igdt，那么接下去找它对应的place
-            #     place = get_igdt_or_act_from_arg_and_entity(row, old_direction, 'Patient', ['Location', 'HABITAT'])
-            #     # for col_name in ['arg{}'.format(str(i)) for i in range(1, 11)]:
-            #     #     if row[col_name] in ['B-Patient', 'I-Patient']:
-            #     #         verb_rows = old_direction[old_direction[col_name] == 'B-V']
-            #     #         locaion_rows = old_direction[
-            #     #             ((old_direction[col_name] == 'B-Location') | (old_direction[col_name] == 'I-Location'))
-            #     #             & ((old_direction['entity'] == 'B-HABITAT') | (old_direction['entity'] == 'I-HABITAT'))
-            #     #         ]
-            #     #         break
-            #     if place is None:
-            #         pass
-            # else:
-            #     # 4.1-2.1.判断hidden的当前位置是否包含目标食材
-            #     # hiddens = parse_hidden(row['hidden'], reserve_idx=False)
-            #     # cur_igdt_list = hiddens.get('Drop', []) + hiddens.get('Shadow', [])
-            #     # 4.1-2.2.若在动词所在行的hidden列，它的Shadow/Drop角色信息中找到igdt，那么接下去找它对应的place
-            #     if igdt_keywords_str in cur_igdt_list:
-            #         # 4.1-2.2-1.动词所在行的hidden列，存在Habitat角色信息
-            #         habitat = hiddens.get('Habitat', [''])[0].replace('_', ' ')
-            #         if habitat != '':
-            #             place = habitat
-            #         # 4.1-2.2-2.动词所在行的hidden列，不存在Habitat角色信息。则挖掘动词的相关位置信息。
-            #         else:
-            #             place = get_igdt_or_act_from_arg_and_entity(row, old_direction, 'V', ['Location', 'HABITAT'])
-            # # 4.1-3.没在当前token定位到目标食材
-            # place = None
 
     return place
 

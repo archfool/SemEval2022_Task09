@@ -24,6 +24,12 @@ entity_list = ['other', 'O', 'O-ADD', 'B-EVENT', 'B-EXPLICITINGREDIENT', 'B-ADD-
                'I-ADD-INGREDIENT', 'I-EXPLICITINGREDIENT', 'B-IMPLICITINGREDIENT', 'B-HABITAT', 'I-ADD-HABITAT',
                'B-ADD-TOOL', 'I-HABITAT', 'I-IMPLICITINGREDIENT', 'B-TOOL', 'I-TOOL', 'I-ADD-TOOL', 'I-EVENT']
 entity_map = {entity: id for id, entity in enumerate(entity_list)}
+upos_lemmer_dict = {
+    'NOUN': 'n',
+    'VERB': 'v',
+    'ADJ': 'a',
+    'ADV': 'r',
+}
 
 qa_type_rule = ['act_first', 'place_before_act', 'count_times', 'count_nums', 'get_result', 'result_component']
 qa_type_model = {
@@ -138,7 +144,7 @@ def parse_recipe(recipe):
     ingredient_dfs = [pd.DataFrame([x for x in ingredient]) for ingredient in ingredients]
     direction_dfs = [pd.DataFrame([x for x in direction]) for direction in directions]
     # 根据隐藏角色信息，重写操作步骤文本
-    new_direction_dfs = hidden_role_knowledge_enhanced(direction_dfs, ingredient_dfs)
+    new_direction_dfs, direction_dfs = hidden_role_knowledge_enhanced(direction_dfs, ingredient_dfs)
     # 对token字段进行清洗：删去左右空格，小写化
     for tmp_dfs in [ingredient_dfs, direction_dfs, new_direction_dfs]:
         for tmp_df in tmp_dfs:
@@ -357,7 +363,9 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
         # 标记upos和entity属性
         for role_item in role_items:
             role_item = [[token, upos_map.get(token, 'NOUN'), 'I-ADD-' + entity] for token in role_item]
-            role_item[0][2] = 'B-ADD-' + entity
+            role_item = [[form, lemmer.lemmatize(form, upos_lemmer_dict.get(upos, 'n')), upos, entity] for
+                         form, upos, entity in role_item]
+            role_item[0][3] = 'B-ADD-' + entity
             role_items_plus.append(role_item)
         # 添加连接词
         if 1 == len(role_items_plus):
@@ -366,8 +374,8 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
             new_role_items = []
             for idx in range(len(role_items_plus) - 1):
                 new_role_items.extend(role_items_plus[idx])
-                new_role_items.append([',', 'PUNCT', 'O-ADD'])
-            new_role_items[-1] = ['and', 'CCONJ', 'O-ADD']
+                new_role_items.append([',', ',', 'PUNCT', 'O-ADD'])
+            new_role_items[-1] = ['and', 'and', 'CCONJ', 'O-ADD']
             new_role_items.extend(role_items_plus[idx + 1])
         return new_role_items
 
@@ -378,43 +386,49 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
         else:
             return 'PUNCT' == direction_dfs[-1]['upos'].iloc[-1]
 
-    directions_df = pd.concat(directions)
-
     # 生成coref知识增强字典
-    coref_dict = {coref: [] for coref in set(directions_df['coref'].to_list()) if coref != '_'}
-    coref = None
-    tokens = []
-    for _, row in directions_df.iterrows():
-        if row['coref'] != '_':
-            coref = row['coref']
-            tokens = [row['form']]
-        elif row['entity'].startswith('I-'):
-            tokens.append(row['form'])
-        else:
-            if coref is not None:
-                coref_dict[coref].append('_'.join(tokens).lower())
-                coref = None
-    coref_dict = {key: list(set(value)) for key, value in coref_dict.items()}
+    def get_coref_map_dict(directions_df):
+        # 统计coref字段和相关文本tokens的对应关系
+        coref_dict = {coref: [] for coref in set(directions_df['coref'].to_list()) if coref != '_'}
+        coref = None
+        tokens = []
+        for _, row in directions_df.iterrows():
+            if row['coref'] != '_':
+                coref = row['coref']
+                tokens = [row['form']]
+            elif row['entity'].startswith('I-'):
+                tokens.append(row['form'])
+            else:
+                if coref is not None:
+                    coref_dict[coref].append('_'.join(tokens).lower())
+                    coref = None
+        coref_dict = {key: list(set(value)) for key, value in coref_dict.items()}
 
-    coref_enhanced_dict = {}
-    for coref, values in coref_dict.items():
-        coref_str = coref.split('.')[0]
-        if len(values) == 1 and coref_str == values[0]:
-            continue
-        else:
-            target_coref_tokens = coref_str.split('_')
-            for value_tokens in [value.split('_') for value in values]:
-                if len(set(value_tokens)) == len(set(value_tokens + target_coref_tokens)):
-                    target_coref_tokens = value_tokens
-                coref_enhanced_dict[coref] = '.'.join(['_'.join(target_coref_tokens), coref.split('.', 1)[1]])
+        # 如果coref字段和相关文本tokens存在不一致，则将其加入map映射表
+        coref_map_dict = {}
+        for coref, values in coref_dict.items():
+            coref_str = coref.split('.')[0]
+            if len(values) == 1 and coref_str == values[0]:
+                continue
+            else:
+                target_coref_tokens = coref_str.split('_')
+                for value_tokens in [value.split('_') for value in values]:
+                    if len(set(value_tokens)) == len(set(value_tokens + target_coref_tokens)):
+                        target_coref_tokens = value_tokens
+                    coref_map_dict[coref] = '.'.join(['_'.join(target_coref_tokens), coref.split('.', 1)[1]])
 
+        return coref_map_dict
+
+    directions_df = pd.concat(directions)
+    coref_map_dict = get_coref_map_dict(directions_df)
     upos_map = pd.concat([x for x in ingredients + directions]).set_index(['form'])['upos'].to_dict()
+
     directions_new = []
-    for direction in directions:
+    for d_idx, direction in enumerate(directions):
         # 新文本
         direction_new = []
         # 遍历所有token
-        for idx, row in direction.iterrows():
+        for r_idx, row in direction.iterrows():
             # 如果原始文本未能正确分割标点符号，则进行纠正
             re_punct = re.search('[.,;]', row['form'])
             if re_punct and len(row['form']) > 1 and row['form'] not in ['..', '...']:
@@ -448,10 +462,29 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
             else:
                 token_df = pd.DataFrame([row.to_dict()], columns=direction.columns)
 
-            # 添加coref信息
-            if '_' != row['coref']:
-                # print('')
-                pass
+            # 添加coref知识
+            if '_' != row['coref'] and row['coref'] in coref_map_dict.keys():
+                target_coref = coref_map_dict[row['coref']]
+                context_tokens = [row['form']]
+                for i in range(r_idx + 1, len(direction)):
+                    if direction.iloc[i]['entity'].startswith('I-'):
+                        context_tokens.append(direction.iloc[i]['form'])
+                    else:
+                        break
+                if '_'.join(context_tokens) != target_coref.split('.')[0]:
+                    add_tokens = join_role_items([target_coref.split('.')[0].split('_')], upos_map, entity='INGREDIENT')
+                    add_tokens = [['(', '(', 'PUNCT', 'O-ADD']] \
+                                 + add_tokens \
+                                 + [[')', ')', 'PUNCT', 'O-ADD']]
+                    add_tokens_df_data = {
+                        'id': [-1 for _ in add_tokens],
+                        'form': [x[0] for x in add_tokens],
+                        'lemma': [x[1] for x in add_tokens],
+                        'upos': [x[2] for x in add_tokens],
+                        'entity': [x[3] for x in add_tokens],
+                    }
+                    add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
+                    token_df = pd.concat([add_tokens_df, token_df])
 
             # 处理不含角色信息的token
             if '_' == row['hidden']:
@@ -482,17 +515,17 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
                     # 根据不同角色，添加不同的文本
                     if 'Result' == role_name:
                         add_tokens = join_role_items(role_items, upos_map, entity='INGREDIENT')
-                        add_tokens = [['to', 'PART', 'O-ADD'], ['get', 'VERB', 'O-ADD']] \
+                        add_tokens = [['to', 'to', 'PART', 'O-ADD'], ['get', 'get', 'VERB', 'O-ADD']] \
                                      + add_tokens \
-                                     + [[',', 'PUNCT', 'O-ADD']]
+                                     + [[',', ',', 'PUNCT', 'O-ADD']]
                         if check_last_punct(direction_new) is False:
-                            add_tokens = [[',', 'PUNCT', 'O-ADD']] + add_tokens
+                            add_tokens = [[',', ',', 'PUNCT', 'O-ADD']] + add_tokens
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
-                            'lemma': [x[0] for x in add_tokens],
-                            'upos': [x[1] for x in add_tokens],
-                            'entity': [x[2] for x in add_tokens],
+                            'lemma': [x[1] for x in add_tokens],
+                            'upos': [x[2] for x in add_tokens],
+                            'entity': [x[3] for x in add_tokens],
                         }
                         add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
                         direction_new.extend([add_tokens_df] + cur_token)
@@ -500,17 +533,17 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
                         cur_token = []
                     elif 'Habitat' == role_name:
                         add_tokens = join_role_items(role_items, upos_map, entity='HABITAT')
-                        add_tokens = [['in', 'ADP', 'O-ADD']] \
+                        add_tokens = [['in', 'in', 'ADP', 'O-ADD']] \
                                      + add_tokens \
-                                     + [[',', 'PUNCT', 'O-ADD']]
+                                     + [[',', ',', 'PUNCT', 'O-ADD']]
                         if check_last_punct(direction_new + cur_token) is False:
-                            add_tokens = [[',', 'PUNCT', 'O-ADD']] + add_tokens
+                            add_tokens = [[',', ',', 'PUNCT', 'O-ADD']] + add_tokens
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
-                            'lemma': [x[0] for x in add_tokens],
-                            'upos': [x[1] for x in add_tokens],
-                            'entity': [x[2] for x in add_tokens],
+                            'lemma': [x[1] for x in add_tokens],
+                            'upos': [x[2] for x in add_tokens],
+                            'entity': [x[3] for x in add_tokens],
                         }
                         add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
                         direction_new.extend(cur_token + [add_tokens_df])
@@ -520,21 +553,23 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
                         add_tokens = join_role_items(role_items, upos_map, entity='TOOL')
                         if (1 == len(add_tokens)) and (add_tokens[0][0] in ['hand', 'hands']):
                             add_tokens[0][0] = 'hand'
-                            add_tokens = [['by', 'ADP', 'O-ADD']] \
+                            add_tokens[0][1] = 'hand'
+                            add_tokens = [['by', 'by', 'ADP', 'O-ADD']] \
                                          + add_tokens \
-                                         + [[',', 'PUNCT', 'O-ADD']]
+                                         + [[',', ',', 'PUNCT', 'O-ADD']]
                         else:
-                            add_tokens = [['by', 'ADP', 'O-ADD'], ['using', 'VERB', 'O-ADD'], ['a', 'DET', 'O-ADD']] \
+                            add_tokens = [['by', 'by', 'ADP', 'O-ADD'], ['using', 'use', 'VERB', 'O-ADD'],
+                                          ['a', 'a', 'DET', 'O-ADD']] \
                                          + add_tokens \
-                                         + [[',', 'PUNCT', 'O-ADD']]
+                                         + [[',', ',', 'PUNCT', 'O-ADD']]
                         if check_last_punct(direction_new + cur_token) is False:
-                            add_tokens = [[',', 'PUNCT', 'O-ADD']] + add_tokens
+                            add_tokens = [[',', ',', 'PUNCT', 'O-ADD']] + add_tokens
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
-                            'lemma': [x[0] for x in add_tokens],
-                            'upos': [x[1] for x in add_tokens],
-                            'entity': [x[2] for x in add_tokens],
+                            'lemma': [x[1] for x in add_tokens],
+                            'upos': [x[2] for x in add_tokens],
+                            'entity': [x[3] for x in add_tokens],
                         }
                         add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
                         direction_new.extend(cur_token + [add_tokens_df])
@@ -542,15 +577,15 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
                         cur_token = []
                     elif ('Drop' == role_name) or ('Shadow' == role_name):
                         add_tokens = join_role_items(role_items, upos_map, entity='INGREDIENT')
-                        add_tokens = [['the', 'DET', 'O-ADD']] \
+                        add_tokens = [['the', 'the', 'DET', 'O-ADD']] \
                                      + add_tokens \
-                                     + [[',', 'PUNCT', 'O-ADD']]
+                                     + [[',', ',', 'PUNCT', 'O-ADD']]
                         add_tokens_df_data = {
                             'id': [-1 for _ in add_tokens],
                             'form': [x[0] for x in add_tokens],
-                            'lemma': [x[0] for x in add_tokens],
-                            'upos': [x[1] for x in add_tokens],
-                            'entity': [x[2] for x in add_tokens],
+                            'lemma': [x[1] for x in add_tokens],
+                            'upos': [x[2] for x in add_tokens],
+                            'entity': [x[3] for x in add_tokens],
                         }
                         add_tokens_df = pd.DataFrame(add_tokens_df_data, columns=direction.columns)
                         direction_new.extend(cur_token + [add_tokens_df])
@@ -560,7 +595,11 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
                         raise ValueError('出现了意料之外的Hidden Role')
         direction_new = pd.concat(direction_new)
         directions_new.append(direction_new)
-    return directions_new
+        # 更新旧directions的coref信息
+        direction['coref'] = direction['coref'].apply(
+            lambda x: '|'.join([x, coref_map_dict[x]]) if x in coref_map_dict.keys() else x)
+        directions[d_idx] = direction
+    return directions_new, directions
 
 
 def label_single_qa_sample_bak0120(sample, qa, recipe):
@@ -1060,7 +1099,8 @@ def data_process(dataset_name):
     data_df = pd.DataFrame(all_samples)
 
     # 最终的返回数据集（模型）
-    data_model_df = data_df['rule' != data_df['match_info']]
+    # data_model_df = data_df[data_df['match_info'] != 'rule']
+    data_model_df = data_df[(data_df['match_info'] != 'rule') & data_df['match_info'] != 'cannot_match']
     dataset_model = {
         'question': data_model_df['question'].to_list(),
         'context': data_model_df['context'].to_list(),
