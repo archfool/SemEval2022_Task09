@@ -17,7 +17,7 @@ from rule_module import rule_for_qa
 
 
 # 解析log文件
-def analyze_log(filename):
+def analyze_log(filename=None):
     filenames = [
         'log_0122_v2.1.0_f1-86.log'
         , 'log_0123_v2.1.1_f1-86.log'
@@ -32,6 +32,7 @@ def analyze_log(filename):
         , 'log_0124_v2.1.10_f1-86.log'
     ]
 
+    log_dfs = []
     for filename in filenames:
         file_path = os.path.join(data_dir, 'log', filename)
 
@@ -47,16 +48,18 @@ def analyze_log(filename):
                 if isinstance(info, dict) and 'eval_f1' in info.keys():
                     eval_log.append(info)
         log_df = pd.DataFrame(eval_log).set_index('epoch')
+        log_dfs.append(log_df)
 
         log_df.to_csv(os.path.join(data_dir, 'log', filename.replace('.log', '.csv')), sep=',', encoding='gbk')
 
 
 if __name__ == "__main__":
+    analyze_log()
     print("BEGIN")
     # if False:
     if os.path.exists(u'D:'):
         dataset_model_vali, dataset_rule_vali = data_process('vali')
-        dataset_model_vali = {key: value for key, value in dataset_model_vali.items()}
+        dataset_model_vali = {key: value[:2] for key, value in dataset_model_vali.items()}
         dataset_model_vali = Dataset.from_dict(dataset_model_vali)
         # dataset_model_test = dataset_model_vali
         dataset_model_test, dataset_rule_test = data_process('test')
@@ -81,10 +84,10 @@ if __name__ == "__main__":
     model_pred_result = extract_qa_manager(datasets_model)
     # 汇总规则和模型的结果
     used_cols = ['recipe_id', 'question_id', 'question', 'pred_answer', 'answer', 'qa_type']
-    print('======================model======================')
-    print(model_pred_result)
-    print('======================result======================')
-    print(rule_pred_result)
+    # print('======================model======================')
+    # print(model_pred_result)
+    # print('======================result======================')
+    # print(rule_pred_result)
     pred_result = pd.concat([rule_pred_result[used_cols], model_pred_result[used_cols]])
 
     # 测试用

@@ -1,10 +1,11 @@
 nohup \
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-base-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0125_v2.1.12/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0126_v3.0.1/ \
 --dataset_name squad \
---do_train \
---do_eval \
+--do_train True \
+--do_eval True \
+--do_predict True \
 --embed_at_first_or_last first \
 --use_upos True \
 --use_entity True \
@@ -19,7 +20,7 @@ python task9_main.py \
 --doc_stride 128 \
 --overwrite_output_dir True \
 --save_strategy epoch \
---save_total_limit 5 \
+--save_total_limit 10 \
 --evaluation_strategy epoch \
 --dataloader_num_workers 0 \
 --max_steps -1 \

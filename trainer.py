@@ -106,10 +106,10 @@ class QuestionAnsweringTrainer(Trainer):
             filename = 'metric_record.log'
             with open(os.path.join(self.args.output_dir, filename), 'a+', encoding='utf-8') as f:
                 record = {
-                    'epoch': self.state.epoch if self.is_in_train else -1,
+                    'epoch': round(self.state.epoch, 2) if self.is_in_train else -1,
                     'step': self.state.global_step,
-                    'f1': metrics['f1'],
-                    'exact_match': metrics['exact_match'],
+                    'f1': round(metrics['f1'], 2),
+                    'exact_match': round(metrics['exact_match'], 2),
                 }
                 json.dump(record, f)
                 f.write('\n')
@@ -647,7 +647,8 @@ def extract_qa_manager(raw_datasets):
             # We will select sample from whole data
             eval_examples = eval_examples.select(range(data_args.max_eval_samples))
         # Validation Feature Creation
-        # eval_dataset_bak = prepare_validation_features(eval_examples)
+        # while True:
+        #     eval_dataset_bak = prepare_vali_features(eval_examples)
         with training_args.main_process_first(desc="validation dataset map pre-processing"):
             eval_dataset = eval_examples.map(
                 prepare_vali_features,

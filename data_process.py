@@ -597,7 +597,7 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
         directions_new.append(direction_new)
         # 更新旧directions的coref信息
         direction['coref'] = direction['coref'].apply(
-            lambda x: '|'.join([x, coref_map_dict[x]]) if x in coref_map_dict.keys() else x)
+            lambda x: ':'.join([x, coref_map_dict[x]]) if x in coref_map_dict.keys() else x)
         directions[d_idx] = direction
     return directions_new, directions
 
@@ -1100,7 +1100,7 @@ def data_process(dataset_name):
 
     # 最终的返回数据集（模型）
     # data_model_df = data_df[data_df['match_info'] != 'rule']
-    data_model_df = data_df[(data_df['match_info'] != 'rule') & data_df['match_info'] != 'cannot_match']
+    data_model_df = data_df[(data_df['match_info'] != 'rule') & (data_df['match_info'] != 'cannot_match')]
     dataset_model = {
         'question': data_model_df['question'].to_list(),
         'context': data_model_df['context'].to_list(),
