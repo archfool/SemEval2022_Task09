@@ -1,7 +1,7 @@
 nohup \
 python task9_main.py \
---model_name_or_path /media/archfool/data/data/huggingface/bert-large-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0127_v3.0.5/ \
+--model_name_or_path /media/archfool/data/data/huggingface/roberta-large/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.6/ \
 --dataset_name squad \
 --do_train True \
 --do_eval True \

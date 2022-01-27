@@ -71,6 +71,17 @@ require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/ques
 logger = logging.getLogger(__name__)
 
 
+def sigmoid(z):
+    return 1.0 / (1.0 + np.exp(-z))
+
+
+def cross_entropy_loss(yHat, y):
+    if y == 1:
+        return -np.log(yHat)
+    else:
+        return -np.log(1 - yHat)
+
+
 class QuestionAnsweringTrainer(Trainer):
     def __init__(self, *args, eval_examples=None, post_process_function=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -121,6 +132,7 @@ class QuestionAnsweringTrainer(Trainer):
                     metrics[f"{metric_key_prefix}_{key}"] = metrics.pop(key)
 
             self.log(metrics)
+            print(metrics)
         else:
             metrics = {}
 
