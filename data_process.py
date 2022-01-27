@@ -22,7 +22,8 @@ upos_list = ['other', 'NOUN', 'PUNCT', 'VERB', 'ADP', 'DET', 'CCONJ', 'ADJ', 'AD
 upos_map = {upos: id for id, upos in enumerate(upos_list)}
 entity_list = ['other', 'O', 'O-ADD', 'B-EVENT', 'B-EXPLICITINGREDIENT', 'B-ADD-INGREDIENT', 'B-ADD-HABITAT',
                'I-ADD-INGREDIENT', 'I-EXPLICITINGREDIENT', 'B-IMPLICITINGREDIENT', 'B-HABITAT', 'I-ADD-HABITAT',
-               'B-ADD-TOOL', 'I-HABITAT', 'I-IMPLICITINGREDIENT', 'B-TOOL', 'I-TOOL', 'I-ADD-TOOL', 'I-EVENT']
+               'B-ADD-TOOL', 'I-HABITAT', 'I-IMPLICITINGREDIENT', 'B-TOOL', 'I-TOOL', 'I-ADD-TOOL', 'I-EVENT',
+               'B-ADD-COREF', 'I-ADD-COREF']
 entity_map = {entity: id for id, entity in enumerate(entity_list)}
 upos_lemmer_dict = {
     'NOUN': 'n',
@@ -425,6 +426,12 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
 
     directions_new = []
     for d_idx, direction in enumerate(directions):
+        # 更新旧directions的hidden信息
+        for old_coref, new_coref in coref_map_dict.items():
+            if old_coref == new_coref:
+                continue
+            place_coref = ':'.join([old_coref, new_coref])
+            direction['hidden'] = direction['hidden'].str.replace(old_coref, place_coref)
         # 新文本
         direction_new = []
         # 遍历所有token
@@ -472,7 +479,7 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
                     else:
                         break
                 if '_'.join(context_tokens) != target_coref.split('.')[0]:
-                    add_tokens = join_role_items([target_coref.split('.')[0].split('_')], upos_map, entity='INGREDIENT')
+                    add_tokens = join_role_items([target_coref.split('.')[0].split('_')], upos_map, entity='COREF')
                     add_tokens = [['(', '(', 'PUNCT', 'O-ADD']] \
                                  + add_tokens \
                                  + [[')', ')', 'PUNCT', 'O-ADD']]
@@ -597,103 +604,11 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
         directions_new.append(direction_new)
         # 更新旧directions的coref信息
         direction['coref'] = direction['coref'].apply(
-            lambda x: ':'.join([x, coref_map_dict[x]]) if x in coref_map_dict.keys() else x)
+            lambda x: ':'.join([x, coref_map_dict[x]])
+            if (x in coref_map_dict.keys()) and (x != coref_map_dict[x])
+            else x)
         directions[d_idx] = direction
     return directions_new, directions
-
-
-def label_single_qa_sample_bak0120(sample, qa, recipe):
-    ingredients = recipe['ingredient_dfs']
-    new_directions = recipe['new_direction_dfs']
-    directions = recipe['direction_dfs']
-
-    """============================模型============================"""
-    # 拼接食材清单文本，拼接操作步骤文本。拼接后的文本，剔除了所有空格。
-    ingredient_tokens = [token for df in ingredients for token in df['form'].tolist()]
-    direction_tokens = [token for df in directions for token in df['form'].tolist()]
-    tokens = ingredient_tokens + direction_tokens
-    sample['tokens'] = tokens
-    text = ''.join(tokens).replace(' ', '')
-    # 计算token在文本中的位置偏置（删除了所有空格后的文本）
-    offsets = []
-    cur_offset = 0
-    for token in tokens:
-        offsets.append((cur_offset, cur_offset + len(token.replace(' ', ''))))
-        cur_offset = offsets[-1][1]
-
-    # 无答案
-    if 'N/A' == qa['answer']:
-        match_info = 'no_answer'
-        sample['label'] = [0 for _ in tokens]
-        sample['match_info'] = match_info
-        return sample
-
-    # 答案文本完全匹配
-    label_offsets = []
-    answer = qa['answer'].replace(' ', '').replace('(', '\(').replace(')', '\)')
-    for tmp in re.finditer(answer, text):
-        label_offsets.append(tmp.span())
-    if len(label_offsets) > 0:
-        if len(label_offsets) == 1:
-            match_info = 'full'
-        else:
-            # todo 要找到最合适的span，进行标注
-            match_info = 'full_duplicate'
-        labels = []
-        for offset in offsets:
-            label = 0
-            for label_offset in label_offsets:
-                if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
-                    label = 1
-                    continue
-            labels.append(label)
-        sample['label'] = labels
-        sample['match_info'] = match_info
-        return sample
-
-    # 答案文本部分匹配
-    label_offsets = []
-    answer = qa['key_str_a'].replace(' ', '').replace('(', '\(').replace(')', '\)')
-    for tmp in re.finditer(answer, text):
-        label_offsets.append(tmp.span())
-    if len(label_offsets) > 0:
-        if len(label_offsets) == 1:
-            match_info = 'partial'
-        else:
-            # todo 要找到最合适的span，进行标注
-            match_info = 'partial_duplicate'
-        labels = []
-        for offset in offsets:
-            label = 0
-            for label_offset in label_offsets:
-                if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
-                    label = 1
-                    continue
-            labels.append(label)
-        sample['label'] = labels
-        sample['match_info'] = match_info
-        return sample
-
-    # 答案关键词匹配
-    label_offsets = []
-    for keyword in qa['keyword_a']:
-        kw = keyword.replace(' ', '').replace('(', '\(').replace(')', '\)')
-        for tmp in re.finditer(kw, text):
-            label_offsets.append(tmp.span())
-    if len(label_offsets) > 0:
-        match_info = 'keywords'
-        # todo 聚合靠得近的关键词
-        labels = []
-        for offset in offsets:
-            label = 0
-            for label_offset in label_offsets:
-                if label_offset[0] <= offset[0] and offset[1] <= label_offset[1]:
-                    label = 1
-                    continue
-            labels.append(label)
-        sample['label'] = labels
-        sample['match_info'] = match_info
-        return sample
 
 
 # 提取文本关键词
@@ -989,10 +904,12 @@ def analyze_recipe(recipes, mode):
 
 # QA样本信息分析
 def analyze_qa(qa_data_df, recipes, mode):
-    def qa_case_analyze(recipe_id, question, recipes):
-        direction_all = pd.concat([df for df in recipes[recipe_id]['direction_dfs']])
+    # direction_all = pd.concat([df for recipe in recipes.values() for df in recipe['direction_dfs']])
+    # hid_df = direction_all[direction_all['hidden'] != '_']
+    # hid_df = hid_df[hid_df['entity'] != 'B-EVENT']
+    # qa_ori_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
 
-    qa_ori_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
+
     # qa_ori_case = qa_ori_all[qa_ori_all['question'].apply(lambda x: x.startswith('How do you '))]
     # qa_ori_case = qa_ori_case[qa_ori_case['family_id'] == 2]
     # qa_ori_case = qa_ori_case[qa_ori_case['answer'] != 'by hand']

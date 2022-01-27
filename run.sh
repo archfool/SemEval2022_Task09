@@ -1,7 +1,7 @@
 nohup \
 python task9_main.py \
---model_name_or_path /media/archfool/data/data/huggingface/bert-base-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0126_v3.0.1/ \
+--model_name_or_path /media/archfool/data/data/huggingface/bert-large-uncased/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0127_v3.0.5/ \
 --dataset_name squad \
 --do_train True \
 --do_eval True \
@@ -9,12 +9,12 @@ python task9_main.py \
 --embed_at_first_or_last first \
 --use_upos True \
 --use_entity True \
---per_device_train_batch_size 2 \
---per_device_eval_batch_size 2 \
+--per_device_train_batch_size 8 \
+--per_device_eval_batch_size 8 \
 --learning_rate 3e-5 \
 --num_train_epochs 20 \
---gradient_accumulation_steps 4 \
---seed 1234 \
+--gradient_accumulation_steps 1 \
+--seed 4321 \
 --disable_tqdm False \
 --max_seq_length 512 \
 --doc_stride 128 \
@@ -53,5 +53,10 @@ python task9_main.py \
 #--evaluation_strategy epoch
 #--evaluation_strategy steps
 #--eval_steps 1000
+
+可以将操作的核心动词作为锚点。
+entity列和hidden列是一组。在entity列被标记为EVENT。hidden列仅在entity=EVENT时，可能存在值。
+upos列和argX列事一组。在upos列被标为VERB或其它。argX列仅在upos=VERB时，可能存在值。每列argX，有且仅有一个核心动词V。
+entity=EVENT和upos=VERB存在一定的共现性。
 
 

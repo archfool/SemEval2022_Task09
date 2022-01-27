@@ -135,4 +135,4 @@ if __name__ == "__main__":
     with open(os.path.join(src_dir, submit_filename), 'w', encoding='utf-8') as f:
         json.dump(r2vq_pred_result, f)
 
-    print('END')
+    print('END\n')

@@ -113,6 +113,7 @@ class QuestionAnsweringTrainer(Trainer):
                 }
                 json.dump(record, f)
                 f.write('\n')
+                print(record, flush=True)
 
             # Prefix all keys with metric_key_prefix + '_'
             for key in list(metrics.keys()):
