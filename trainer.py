@@ -204,14 +204,20 @@ def postprocess_qa_predictions(
         log_level: Optional[int] = logging.WARNING,
         tokenizer=None
 ):
-    # 映射菜谱ID和真实答案
+    # 映射菜谱ID和真实答案/token偏置/标签
     id_answer_dict = {}
+    id_offset_maping_dict = {}
+    id_label_dict = {}
     for example in examples:
         example_recipe_id = example['id']
         answer = example['answer']
+        offset_maping = example['offset_maping']
+        label = example['label']
         id_answer_dict[example_recipe_id] = answer
+        id_offset_maping_dict[example_recipe_id] = offset_maping
+        id_label_dict[example_recipe_id] = label
 
-    # 映射菜谱ID和预测答案关键字
+    # 建立以菜谱ID为key的字典，value预测的答案关键字id集合
     id_pred_token_dict = {}
     for feature, prediction in zip(features, predictions):
         feature_recipe_id = feature['recipe_id']
@@ -219,14 +225,28 @@ def postprocess_qa_predictions(
         token_type_ids = feature['token_type_ids']
         token_offsets = feature['token_offset']
         # todo prediction的格式可能会变动
-        logit = prediction
+        logits = prediction
 
+        # 答案关键字集合
         pred_answer_token_list = []
-        pred_labels = logit.argmax(axis=1).tolist()
-        # pred_labels = [1 for _ in range(len(pred_labels))]
-        for pred_label, token_id, t_type_id, t_offset in zip(pred_labels, token_ids, token_type_ids, token_offsets):
-            if 1 == pred_label and 1 == t_type_id:
-                pred_answer_token_list.append((t_offset[0], t_offset[1], token_id))
+        # 计算预测的label
+        pred_labels = logits.argmax(axis=1).tolist()
+        # 映射样本序列的label至特征序列
+        labels = tag_offset_mapping(id_offset_maping_dict[feature_recipe_id], id_label_dict[feature_recipe_id],
+                                    token_offsets, token_type_ids, 1, 0)
+
+        # todo 整合成dataframe可能会快一下
+        # 遍历所有token
+        for label, logit, pred_label, token_id, t_type_id, t_offset in \
+                zip(labels, logits, pred_labels, token_ids, token_type_ids, token_offsets):
+            # 判断当前token是问题还是文章
+            if 1 == t_type_id:
+                # 若被预测为1，则加入答案关键字id集合
+                if 1 == pred_label:
+                    pred_answer_token_list.append((t_offset[0], t_offset[1], token_id))
+                # todo 计算当前token的cross_entropy
+                print(label)
+                print(logit)
 
         id_pred_token_dict[feature_recipe_id] = id_pred_token_dict.get(feature_recipe_id, []) + pred_answer_token_list
 
