@@ -103,7 +103,7 @@ if __name__ == "__main__":
         dataset_model_vali = Dataset.from_dict(dataset_model_vali)
         # dataset_model_test = dataset_model_vali
         dataset_model_test, dataset_rule_test = data_process('test')
-        dataset_model_test = {key: value[:2] for key, value in dataset_model_test.items()}
+        dataset_model_test = {key: value for key, value in dataset_model_test.items()}
         dataset_model_test = Dataset.from_dict(dataset_model_test)
         datasets_model = {'train': dataset_model_vali, 'validation': dataset_model_vali, 'test': dataset_model_test}
     else:
