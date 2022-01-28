@@ -1,10 +1,10 @@
 nohup \
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-large-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.8/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.9/ \
 --dataset_name squad \
---do_train True \
---do_eval True \
+--do_train False \
+--do_eval False \
 --do_predict True \
 --embed_at_first_or_last first \
 --use_upos True \
@@ -26,6 +26,7 @@ python task9_main.py \
 --dataloader_num_workers 0 \
 --max_steps -1 \
 --logging_first_step True \
+--resume_from_checkpoint /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.8/checkpoint-28290 \
  >> /media/archfool/data/data/SemEval-2022/task9/log/runoob.log 2>&1 &
 
 

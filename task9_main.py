@@ -96,8 +96,8 @@ if __name__ == "__main__":
     print("BEGIN")
 
     # 准备数据
-    # if False:
-    if os.path.exists(u'D:'):
+    if False:
+    # if os.path.exists(u'D:'):
         dataset_model_vali, dataset_rule_vali = data_process('vali')
         dataset_model_vali = {key: value[:2] for key, value in dataset_model_vali.items()}
         dataset_model_vali = Dataset.from_dict(dataset_model_vali)
@@ -118,11 +118,11 @@ if __name__ == "__main__":
     # 获取规则结果
     rule_pred_result = rule_for_qa(dataset_rule_test)
     rule_pred_result['pred_answer'] = rule_pred_result['pred_answer'].apply(
-        lambda x: None if (x == 'N/A' or x == '') else None)
+        lambda x: None if (x == 'N/A' or x == '') else x)
     # 获取模型结果
     model_pred_result, output_dir = extract_qa_manager(datasets_model)
     model_pred_result['pred_answer'] = model_pred_result['pred_answer'].apply(
-        lambda x: None if (x == 'N/A' or x == '') else None)
+        lambda x: None if (x == 'N/A' or x == '') else x)
     # 汇总规则和模型的结果
     used_cols = ['recipe_id', 'question_id', 'question', 'pred_answer', 'answer', 'qa_type']
     pred_result = pd.concat([rule_pred_result[used_cols], model_pred_result[used_cols]])

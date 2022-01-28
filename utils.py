@@ -55,7 +55,7 @@ def get_optimizer_params_large(args, model):
                     any(nd in n for nd in no_decay) and any(nd in n for nd in group3)], 'weight_decay': 0.0,
          'lr': args.learning_rate * 1.6},
         # 对非transformer结构的Head层设置极高的学习率
-        {'params': [p for n, p in model.named_parameters() if "roberta" not in n], 'lr': args.learning_rate * 4,
+        {'params': [p for n, p in model.named_parameters() if "bert" not in n], 'lr': args.learning_rate * 4,
          "momentum": 0.99},
         # args.learning_rate*2
     ]
@@ -74,6 +74,43 @@ def get_optimizer_params_base(args, model):
     group3 = ['layer.8.', 'layer.9.', 'layer.10.', 'layer.11.']
     group_all = ['layer.0.', 'layer.1.', 'layer.2.', 'layer.3.', 'layer.4.', 'layer.5.', 'layer.6.', 'layer.7.',
                  'layer.8.', 'layer.9.', 'layer.10.', 'layer.11.']
+
+    name_optimizer_grouped_parameters = [
+        # 首先对所有层中需要权重衰减的need_decay参数设置weight_decay
+        {'params': [n for n, p in getattr(model, args.model_name_for_optimizer).named_parameters() if
+                    not any(nd in n for nd in no_decay) and not any(nd in n for nd in group_all)],
+         'weight_decay': args.weight_decay},
+        # 对group1里的所有需要权重衰减的need_decay参数设置较低的学习率learning_rate/2.6
+        {'params': [n for n, p in getattr(model, args.model_name_for_optimizer).named_parameters() if
+                    not any(nd in n for nd in no_decay) and any(nd in n for nd in group1)],
+         'weight_decay': args.weight_decay, 'lr': args.learning_rate / 1.6},
+        # 对group2里所有需要权重衰减need_decay的参数设置中等学习率learning_rate
+        {'params': [n for n, p in getattr(model, args.model_name_for_optimizer).named_parameters() if
+                    not any(nd in n for nd in no_decay) and any(nd in n for nd in group2)],
+         'weight_decay': args.weight_decay, 'lr': args.learning_rate},
+        # 对group3里所有的需要权重衰减的参数设置较高的学习率learning_rate * 2.6
+        {'params': [n for n, p in getattr(model, args.model_name_for_optimizer).named_parameters() if
+                    not any(nd in n for nd in no_decay) and any(nd in n for nd in group3)],
+         'weight_decay': args.weight_decay, 'lr': args.learning_rate * 1.6},
+        # 首先对所有层中不需要权重衰减的no_decay参数设置0的weight_decay
+        {'params': [n for n, p in getattr(model, args.model_name_for_optimizer).named_parameters() if
+                    any(nd in n for nd in no_decay) and not any(nd in n for nd in group_all)], 'weight_decay': 0.0},
+        # 对group1里的所有不需要权重衰减的no_decay参数设置较低的学习率learning_rate/2.6
+        {'params': [n for n, p in getattr(model, args.model_name_for_optimizer).named_parameters() if
+                    any(nd in n for nd in no_decay) and any(nd in n for nd in group1)], 'weight_decay': 0.0,
+         'lr': args.learning_rate / 1.6},
+        # 对group2里的所有不需要权重衰减的no_decay参数设置中等的学习率learning_rate
+        {'params': [n for n, p in getattr(model, args.model_name_for_optimizer).named_parameters() if
+                    any(nd in n for nd in no_decay) and any(nd in n for nd in group2)], 'weight_decay': 0.0,
+         'lr': args.learning_rate},
+        # 对group3里的所有不需要权重衰减的no_decay参数设置较高的学习率learning_rate * 2.6
+        {'params': [n for n, p in getattr(model, args.model_name_for_optimizer).named_parameters() if
+                    any(nd in n for nd in no_decay) and any(nd in n for nd in group3)], 'weight_decay': 0.0,
+         'lr': args.learning_rate * 1.6},
+        # 对非transformer结构的Head层设置极高的学习率
+        {'params': [n for n, p in model.named_parameters() if "bert" not in n], 'lr': args.learning_rate * 5,
+         "momentum": 0.99},
+    ]
 
     optimizer_grouped_parameters = [
         # 首先对所有层中需要权重衰减的need_decay参数设置weight_decay
@@ -108,7 +145,7 @@ def get_optimizer_params_base(args, model):
                     any(nd in n for nd in no_decay) and any(nd in n for nd in group3)], 'weight_decay': 0.0,
          'lr': args.learning_rate * 1.6},
         # 对非transformer结构的Head层设置极高的学习率
-        {'params': [p for n, p in model.named_parameters() if "roberta" not in n], 'lr': args.learning_rate * 5,
+        {'params': [p for n, p in model.named_parameters() if "bert" not in n], 'lr': args.learning_rate * 5,
          "momentum": 0.99},
     ]
 
@@ -162,6 +199,3 @@ def make_optimizer(args, model):
     #     return optimizer
     else:
         raise Exception('Unknown optimizer: {}'.format(optimizer_name))
-
-
-

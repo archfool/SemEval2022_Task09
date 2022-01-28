@@ -546,6 +546,8 @@ def extract_qa_manager(raw_datasets):
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
+    # todo
+    # optimizer = utils.make_optimizer(training_args, model)
 
     # Tokenizer check: this script requires a fast tokenizer.
     if not isinstance(tokenizer, PreTrainedTokenizerFast):
@@ -800,7 +802,9 @@ def extract_qa_manager(raw_datasets):
         post_process_function=post_processing_function,
         compute_metrics=compute_metrics,
     )
-    # optimizer = utils.make_optimizer(training_args, model)
+    # todo
+    optimizer = utils.make_optimizer(training_args, model)
+    # trainer.optimizer = optimizer
 
     # Training
     if training_args.do_train:
