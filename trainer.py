@@ -27,6 +27,7 @@ import os
 from typing import Optional, Tuple
 import numpy as np
 import pandas as pd
+import torch
 from tqdm.auto import tqdm
 
 from BertForExtractQA import BertForExtractQA
@@ -39,6 +40,11 @@ from util_data import tag_offset_mapping
 
 import datasets
 from datasets import load_dataset, load_metric
+
+import torch
+from torch import nn
+
+cross_entropy_fct = nn.CrossEntropyLoss()
 
 from transformers import Trainer, is_torch_tpu_available
 from transformers.trainer_utils import PredictionOutput
@@ -71,17 +77,6 @@ require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/ques
 logger = logging.getLogger(__name__)
 
 
-def sigmoid(z):
-    return 1.0 / (1.0 + np.exp(-z))
-
-
-def cross_entropy_loss(yHat, y):
-    if y == 1:
-        return -np.log(yHat)
-    else:
-        return -np.log(1 - yHat)
-
-
 class QuestionAnsweringTrainer(Trainer):
     def __init__(self, *args, eval_examples=None, post_process_function=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -110,7 +105,7 @@ class QuestionAnsweringTrainer(Trainer):
             self.compute_metrics = compute_metrics
 
         if self.post_process_function is not None and self.compute_metrics is not None:
-            eval_preds = self.post_process_function(eval_examples, eval_dataset, output.predictions)
+            eval_preds, eval_loss = self.post_process_function(eval_examples, eval_dataset, output.predictions)
             metrics = self.compute_metrics(eval_preds)
 
             # 打印评估结果至文件
@@ -119,6 +114,7 @@ class QuestionAnsweringTrainer(Trainer):
                 record = {
                     'epoch': round(self.state.epoch, 2) if self.is_in_train else -1,
                     'step': self.state.global_step,
+                    'loss': round(eval_loss, 6) if eval_loss is not None else None,
                     'f1': round(metrics['f1'], 2),
                     'exact_match': round(metrics['exact_match'], 2),
                 }
@@ -165,7 +161,7 @@ class QuestionAnsweringTrainer(Trainer):
         if self.post_process_function is None or self.compute_metrics is None:
             return output
 
-        predictions = self.post_process_function(predict_examples, predict_dataset, output.predictions, "predict")
+        predictions, loss = self.post_process_function(predict_examples, predict_dataset, output.predictions, "predict")
 
         id_qa_type_map = {idx: qa_type for idx, qa_type in zip(predict_examples['id'], predict_examples['qa_type'])}
         for idx, prediction in enumerate(predictions):
@@ -219,6 +215,9 @@ def postprocess_qa_predictions(
 
     # 建立以菜谱ID为key的字典，value预测的答案关键字id集合
     id_pred_token_dict = {}
+    # 所有样本的loss总和
+    loss_list = []
+    # 遍历所有训练样本
     for feature, prediction in zip(features, predictions):
         feature_recipe_id = feature['recipe_id']
         token_ids = feature['input_ids']
@@ -231,24 +230,43 @@ def postprocess_qa_predictions(
         pred_answer_token_list = []
         # 计算预测的label
         pred_labels = logits.argmax(axis=1).tolist()
-        # 映射样本序列的label至特征序列
-        labels = tag_offset_mapping(id_offset_maping_dict[feature_recipe_id], id_label_dict[feature_recipe_id],
-                                    token_offsets, token_type_ids, 1, 0)
-
-        # todo 整合成dataframe可能会快一下
+        # tmp: pred_labels = [1 for x in pred_labels]
         # 遍历所有token
-        for label, logit, pred_label, token_id, t_type_id, t_offset in \
-                zip(labels, logits, pred_labels, token_ids, token_type_ids, token_offsets):
+        for pred_label, token_id, t_type_id, t_offset in \
+                zip(pred_labels, token_ids, token_type_ids, token_offsets):
             # 判断当前token是问题还是文章
             if 1 == t_type_id:
                 # 若被预测为1，则加入答案关键字id集合
                 if 1 == pred_label:
                     pred_answer_token_list.append((t_offset[0], t_offset[1], token_id))
-                # todo 计算当前token的cross_entropy
-                print(label)
-                print(logit)
 
         id_pred_token_dict[feature_recipe_id] = id_pred_token_dict.get(feature_recipe_id, []) + pred_answer_token_list
+
+        # todo 并行加速，暂时不用，担心稳定性问题
+        # infer_df = pd.DataFrame({
+        #     'label': labels,
+        #     'logit': [x for x in logits],
+        #     'pred_label': pred_labels,
+        #     'token_id': token_ids,
+        #     't_type_id': token_type_ids,
+        #     't_offset': token_offsets,
+        # })
+        # infer_df['pred_answer_token'] = infer_df.apply(
+        #     lambda r: (r['t_offset'][0], r['t_offset'][1], r['token_id'])
+        #     if (1 == r['t_type_id']) and (1 == r['pred_label'])
+        #     else None, axis=1)
+
+        # token的cross_entropy
+        if label is not None:
+            # 映射样本序列的label至特征序列
+            labels = tag_offset_mapping(id_offset_maping_dict[feature_recipe_id], id_label_dict[feature_recipe_id],
+                                        token_offsets, token_type_ids, 1, 0)
+            logits_tensor = torch.tensor(logits, device="cuda" if torch.cuda.is_available() else "cpu").contiguous()
+            labels_tensor = torch.tensor(labels, device="cuda" if torch.cuda.is_available() else "cpu").contiguous()
+            single_loss = cross_entropy_fct(logits_tensor, labels_tensor)
+            loss_list.append(single_loss.item())
+
+    loss = sum(loss_list) / len(loss_list) if len(loss_list) > 0 else None
 
     # assert id_answer_dict.keys() == id_pred_token_dict.keys()
 
@@ -268,7 +286,7 @@ def postprocess_qa_predictions(
     #     for item in pred_result:
     #         f.write("{}\n{}\n{}\n\n".format(item['id'], item['answer_text'], item['prediction_text']))
 
-    return pred_result
+    return pred_result, loss
 
 
 @dataclass
@@ -728,7 +746,7 @@ def extract_qa_manager(raw_datasets):
     # Post-processing:
     def post_processing_function(examples, features, predictions, stage="eval"):
         # Post-processing: we match the start logits and end logits to answers in the original context.
-        pred_result = postprocess_qa_predictions(
+        pred_result, loss = postprocess_qa_predictions(
             examples=examples,
             features=features,
             predictions=predictions,
@@ -741,7 +759,7 @@ def extract_qa_manager(raw_datasets):
             prefix=stage,
             tokenizer=tokenizer,
         )
-        return pred_result
+        return pred_result, loss
 
     metric = load_metric("squad_v2" if data_args.version_2_with_negative else "squad")
     # metric = load_metric("squad_v2" if data_args.version_2_with_negative else "squad")

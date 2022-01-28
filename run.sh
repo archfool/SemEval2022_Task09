@@ -9,12 +9,12 @@ python task9_main.py \
 --embed_at_first_or_last first \
 --use_upos True \
 --use_entity True \
---per_device_train_batch_size 8 \
---per_device_eval_batch_size 8 \
 --learning_rate 3e-5 \
 --num_train_epochs 20 \
---gradient_accumulation_steps 1 \
---seed 4321 \
+--per_device_train_batch_size 4 \
+--per_device_eval_batch_size 4 \
+--gradient_accumulation_steps 2 \
+--seed 1248 \
 --disable_tqdm False \
 --max_seq_length 512 \
 --doc_stride 128 \
@@ -28,6 +28,8 @@ python task9_main.py \
  >> /media/archfool/data/data/SemEval-2022/task9/log/runoob.log 2>&1 &
 
 
+--model_name_or_path /media/archfool/data/data/huggingface/bert-large-uncased/ \
+--model_name_or_path /media/archfool/data/data/huggingface/roberta-large/ \
 
 #--resume_from_checkpoint /media/archfool/data/data/SemEval-2022/task9/result0120_v2.0/checkpoint-28290 \
 # nohup test.py > /media/archfool/data/data/SemEval-2022/task9/log/runoob.log 2>&1 &
