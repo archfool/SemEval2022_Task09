@@ -1013,8 +1013,8 @@ def data_process(dataset_name):
     for recipe_id, recipe in recipes.items():
         single_recipe_qa_samples = auto_label(recipe)
         all_samples += single_recipe_qa_samples
-    # data_df = pd.DataFrame(all_samples).sample(frac=1)
-    data_df = pd.DataFrame(all_samples)
+    data_df = pd.DataFrame(all_samples).sample(frac=1)
+    # data_df = pd.DataFrame(all_samples)
 
     # 最终的返回数据集（模型）
     # data_model_df = data_df[data_df['match_info'] != 'rule']

@@ -32,6 +32,7 @@ from tqdm.auto import tqdm
 
 from BertForExtractQA import BertForExtractQA
 from data_process import upos_map, entity_map
+import utils
 
 # sys.path.append(os.path.abspath(os.path.dirname(os.getcwd())))
 sys.path.append(os.path.join(os.path.abspath(os.path.dirname(os.getcwd())), 'framework'))
@@ -326,6 +327,10 @@ class ModelArguments:
     embed_at_first_or_last: str = field(
         default=None, metadata={"help": "place the upos/entity embedding at first/last of the model."}
     )
+    optimizer_type: str = field(
+        default="AdamW",
+        metadata={"help": "optimizer_type"},
+    )
 
 
 @dataclass
@@ -451,7 +456,7 @@ def extract_qa_manager(raw_datasets):
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
-
+    setattr(TrainingArguments, 'optimizer_type', 'AdamW')
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -459,6 +464,9 @@ def extract_qa_manager(raw_datasets):
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+
+    training_args.__setattr__('model_name_for_optimizer', os.path.split(model_args.model_name_or_path)[1].split('-')[0])
+    training_args.__setattr__('optimizer_type', model_args.optimizer_type)
 
     # 获取upos和entity的词表长度信息
     if model_args.upos_size is None:
@@ -520,6 +528,7 @@ def extract_qa_manager(raw_datasets):
     config.__setattr__('upos_size', model_args.upos_size)
     config.__setattr__('entity_size', model_args.entity_size)
     config.__setattr__('embed_at_first_or_last', model_args.embed_at_first_or_last)
+    training_args.__setattr__('hidden_size', config.hidden_size)
 
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
@@ -791,6 +800,7 @@ def extract_qa_manager(raw_datasets):
         post_process_function=post_processing_function,
         compute_metrics=compute_metrics,
     )
+    # optimizer = utils.make_optimizer(training_args, model)
 
     # Training
     if training_args.do_train:
@@ -838,4 +848,18 @@ def extract_qa_manager(raw_datasets):
         # trainer.log_metrics("predict", metrics)
         # trainer.save_metrics("predict", metrics)
 
-    return pred_results
+    return pred_results, training_args.output_dir
+
+
+if __name__ == '__main__':
+    from data_process import data_process
+    from datasets import Dataset
+
+    dataset_model_vali, dataset_rule_vali = data_process('vali')
+    dataset_model_vali = {key: value[:2] for key, value in dataset_model_vali.items()}
+    dataset_model_vali = Dataset.from_dict(dataset_model_vali)
+    datasets_model = {'train': dataset_model_vali, 'validation': dataset_model_vali, 'test': dataset_model_vali}
+
+    model_pred_result, output_dir = extract_qa_manager(datasets_model)
+
+    print('END')

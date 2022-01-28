@@ -1,7 +1,7 @@
 nohup \
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-large-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.7/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.8/ \
 --dataset_name squad \
 --do_train True \
 --do_eval True \
@@ -10,11 +10,12 @@ python task9_main.py \
 --use_upos True \
 --use_entity True \
 --learning_rate 3e-5 \
---num_train_epochs 20 \
+--weight_decay 0 \
+--num_train_epochs 15 \
 --per_device_train_batch_size 4 \
 --per_device_eval_batch_size 4 \
 --gradient_accumulation_steps 2 \
---seed 1248 \
+--seed 1234 \
 --disable_tqdm False \
 --max_seq_length 512 \
 --doc_stride 128 \
@@ -55,10 +56,5 @@ python task9_main.py \
 #--evaluation_strategy epoch
 #--evaluation_strategy steps
 #--eval_steps 1000
-
-可以将操作的核心动词作为锚点。
-entity列和hidden列是一组。在entity列被标记为EVENT。hidden列仅在entity=EVENT时，可能存在值。
-upos列和argX列事一组。在upos列被标为VERB或其它。argX列仅在upos=VERB时，可能存在值。每列argX，有且仅有一个核心动词V。
-entity=EVENT和upos=VERB存在一定的共现性。
 
 

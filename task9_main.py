@@ -103,7 +103,7 @@ if __name__ == "__main__":
         dataset_model_vali = Dataset.from_dict(dataset_model_vali)
         # dataset_model_test = dataset_model_vali
         dataset_model_test, dataset_rule_test = data_process('test')
-        dataset_model_test = {key: value for key, value in dataset_model_test.items()}
+        dataset_model_test = {key: value[:2] for key, value in dataset_model_test.items()}
         dataset_model_test = Dataset.from_dict(dataset_model_test)
         datasets_model = {'train': dataset_model_vali, 'validation': dataset_model_vali, 'test': dataset_model_test}
     else:
@@ -120,7 +120,7 @@ if __name__ == "__main__":
     rule_pred_result['pred_answer'] = rule_pred_result['pred_answer'].apply(
         lambda x: None if (x == 'N/A' or x == '') else None)
     # 获取模型结果
-    model_pred_result = extract_qa_manager(datasets_model)
+    model_pred_result, output_dir = extract_qa_manager(datasets_model)
     model_pred_result['pred_answer'] = model_pred_result['pred_answer'].apply(
         lambda x: None if (x == 'N/A' or x == '') else None)
     # 汇总规则和模型的结果
@@ -134,6 +134,8 @@ if __name__ == "__main__":
     submit_filename = 'local_r2vq_pred.json' if os.path.exists(u'D:') else 'r2vq_pred.json'
     with open(os.path.join(src_dir, submit_filename), 'w', encoding='utf-8') as f:
         json.dump(r2vq_pred_result, f)
+    with open(os.path.join(output_dir, submit_filename), 'w', encoding='utf-8') as f:
+        json.dump(r2vq_pred_result, f)
 
     # 生成不带规则模块输出的提交文件
     none_rule_pred_result = copy.deepcopy(rule_pred_result)
@@ -142,6 +144,8 @@ if __name__ == "__main__":
     no_rule_r2vq_pred_result = convert_pred_result_to_submission_format(no_rule_pred_result)
     no_rule_submit_filename = 'local_norule_r2vq_pred.json' if os.path.exists(u'D:') else 'norule_r2vq_pred.json'
     with open(os.path.join(src_dir, no_rule_submit_filename), 'w', encoding='utf-8') as f:
+        json.dump(no_rule_r2vq_pred_result, f)
+    with open(os.path.join(output_dir, no_rule_submit_filename), 'w', encoding='utf-8') as f:
         json.dump(no_rule_r2vq_pred_result, f)
 
     # 测试用
