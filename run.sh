@@ -1,6 +1,6 @@
 nohup \
 python task9_main.py \
---model_name_or_path /media/archfool/data/data/huggingface/roberta-large/ \
+--model_name_or_path /media/archfool/data/data/huggingface/bert-large-uncased/ \
 --output_dir /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.6/ \
 --dataset_name squad \
 --do_train True \
@@ -13,7 +13,7 @@ python task9_main.py \
 --num_train_epochs 20 \
 --per_device_train_batch_size 4 \
 --per_device_eval_batch_size 4 \
---gradient_accumulation_steps 2 \
+--gradient_accumulation_steps 16 \
 --seed 1248 \
 --disable_tqdm False \
 --max_seq_length 512 \

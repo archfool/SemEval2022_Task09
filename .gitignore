@@ -133,3 +133,5 @@ dmypy.json
 
 local_r2vq_pred.json
 local_r2vq_pred.zip
+local_norule_r2vq_pred.json
+local_norule_r2vq_pred.zip

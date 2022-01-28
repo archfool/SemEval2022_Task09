@@ -434,7 +434,7 @@ def rule_for_qa(dataset):
             raise ValueError('invalid rule qa_type')
 
     qa_df[['recipe_id', 'question_id']] = qa_df.apply(parse_id, axis=1, result_type="expand")
-    if False:
+    if os.path.exists(u'/media/archfool/data'):
         qa_df['pred_answer'] = qa_df.apply(get_answer_by_rule, axis=1)
     else:
         qa_df['pred_answer'] = None

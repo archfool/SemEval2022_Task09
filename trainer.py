@@ -171,8 +171,6 @@ class QuestionAnsweringTrainer(Trainer):
             prediction['question_id'] = question_id
             prediction['question'] = question
             prediction['qa_type'] = qa_type
-            prediction['pred_answer'] = prediction['prediction_text']
-            prediction['answer'] = prediction['answer_text']
             predictions[idx] = prediction
         ret_df = pd.DataFrame(predictions)
 
@@ -279,12 +277,10 @@ def postprocess_qa_predictions(
         pred_answer = ' '.join(set(pred_answer_middle))
         if '' == pred_answer:
             pred_answer = 'N/A'
-        pred_result.append({'id': recipe_id, 'answer_text': id_answer_dict[recipe_id], 'prediction_text': pred_answer})
-
-    # file_path = os.path.join(output_dir, "SE2022_task9_result_{}.txt".format(get_now_date_str()))
-    # with open(file_path, "w", encoding='utf-8') as f:
-    #     for item in pred_result:
-    #         f.write("{}\n{}\n{}\n\n".format(item['id'], item['answer_text'], item['prediction_text']))
+        pred_result.append({
+            'id': recipe_id,
+            'answer': id_answer_dict[recipe_id],
+            'pred_answer': pred_answer})
 
     return pred_result, loss
 
@@ -777,8 +773,8 @@ def extract_qa_manager(raw_datasets):
         references = []
         for item in pred_result:
             idx = item['id']
-            answer_text = item['answer_text']
-            prediction_text = item['prediction_text']
+            answer_text = item['answer']
+            prediction_text = item['pred_answer']
             predictions.append({'id': idx, 'prediction_text': prediction_text})
             references.append({'id': idx, 'answers': {'text': [answer_text], 'answer_start': [0]}})
         return metric.compute(predictions=predictions, references=references)
