@@ -1,10 +1,10 @@
 nohup \
 python task9_main.py \
 --model_name_or_path /media/archfool/data/data/huggingface/bert-large-uncased/ \
---output_dir /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.9/ \
+--output_dir /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.10/ \
 --dataset_name squad \
---do_train False \
---do_eval False \
+--do_train True \
+--do_eval True \
 --do_predict True \
 --embed_at_first_or_last first \
 --use_upos True \
@@ -15,7 +15,7 @@ python task9_main.py \
 --per_device_train_batch_size 4 \
 --per_device_eval_batch_size 4 \
 --gradient_accumulation_steps 2 \
---seed 1234 \
+--seed 1248 \
 --disable_tqdm False \
 --max_seq_length 512 \
 --doc_stride 128 \
@@ -26,12 +26,12 @@ python task9_main.py \
 --dataloader_num_workers 0 \
 --max_steps -1 \
 --logging_first_step True \
---resume_from_checkpoint /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.8/checkpoint-28290 \
  >> /media/archfool/data/data/SemEval-2022/task9/log/runoob.log 2>&1 &
 
 
 --model_name_or_path /media/archfool/data/data/huggingface/bert-large-uncased/ \
 --model_name_or_path /media/archfool/data/data/huggingface/roberta-large/ \
+--resume_from_checkpoint /media/archfool/data/data/SemEval-2022/task9/result0128_v3.0.8/checkpoint-18610 \
 
 #--resume_from_checkpoint /media/archfool/data/data/SemEval-2022/task9/result0120_v2.0/checkpoint-28290 \
 # nohup test.py > /media/archfool/data/data/SemEval-2022/task9/log/runoob.log 2>&1 &

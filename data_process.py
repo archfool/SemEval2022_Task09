@@ -39,7 +39,7 @@ qa_type_model = {
         'act_couple_igdt', 'igdt_amount', 'how_would_you', 'what_do_you'],  # 整句匹配
 }
 
-q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a', 'then']
+q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a', 'then', 'for', 'and', 'by', 'into']
 
 """
 CONLL标注格式包含10列，分别为：
@@ -160,6 +160,15 @@ def parse_recipe(recipe):
         for tmp_df in tmp_dfs:
             tmp_df['upos_id'] = tmp_df['upos'].map(upos_map)
             tmp_df['entity_id'] = tmp_df['entity'].map(entity_map)
+    # 给各个dataframe添加recipe_id
+    qa_df['recipe_id'] = newdoc_id
+    for tmp_dfs in [ingredient_dfs, direction_dfs, new_direction_dfs]:
+        for tmp_df in tmp_dfs:
+            tmp_df['recipe_id'] = newdoc_id
+    # 给各个dataframe序列按顺序编号
+    for tmp_dfs in [ingredient_dfs, direction_dfs, new_direction_dfs]:
+        for idx, tmp_df in enumerate(tmp_dfs):
+            tmp_df['seq_id'] = idx
 
     # 原始菜谱的文本长度
     metadata['seq_len'] = sum([len(x) for x in directions])
@@ -175,6 +184,9 @@ def parse_recipe(recipe):
         'directions': directions,
         'direction_dfs': direction_dfs,
         'new_direction_dfs': new_direction_dfs,
+        'data_drt': pd.concat(direction_dfs),
+        'data_drt_new': pd.concat(new_direction_dfs),
+        'data_igdt': pd.concat(ingredient_dfs),
     }
     return new_recipe
 
@@ -522,7 +534,10 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
                     # 根据不同角色，添加不同的文本
                     if 'Result' == role_name:
                         add_tokens = join_role_items(role_items, upos_map, entity='INGREDIENT')
-                        add_tokens = [['to', 'to', 'PART', 'O-ADD'], ['get', 'get', 'VERB', 'O-ADD']] \
+                        # add_tokens = [['to', 'to', 'PART', 'O-ADD'], ['get', 'get', 'VERB', 'O-ADD']] \
+                        #              + add_tokens \
+                        #              + [[',', ',', 'PUNCT', 'O-ADD']]
+                        add_tokens = [['for', 'for', 'PART', 'O-ADD']] \
                                      + add_tokens \
                                      + [[',', ',', 'PUNCT', 'O-ADD']]
                         if check_last_punct(direction_new) is False:
@@ -565,8 +580,11 @@ def hidden_role_knowledge_enhanced(directions, ingredients):
                                          + add_tokens \
                                          + [[',', ',', 'PUNCT', 'O-ADD']]
                         else:
-                            add_tokens = [['by', 'by', 'ADP', 'O-ADD'], ['using', 'use', 'VERB', 'O-ADD'],
-                                          ['a', 'a', 'DET', 'O-ADD']] \
+                            # add_tokens = [['by', 'by', 'ADP', 'O-ADD'], ['using', 'use', 'VERB', 'O-ADD'],
+                            #               ['a', 'a', 'DET', 'O-ADD']] \
+                            #              + add_tokens \
+                            #              + [[',', ',', 'PUNCT', 'O-ADD']]
+                            add_tokens = [['by', 'by', 'ADP', 'O-ADD'], ['a', 'a', 'DET', 'O-ADD']] \
                                          + add_tokens \
                                          + [[',', ',', 'PUNCT', 'O-ADD']]
                         if check_last_punct(direction_new + cur_token) is False:
@@ -693,7 +711,6 @@ def label_single_qa_sample(sample, qa, recipe):
     if qa_type in qa_type_rule:
         match_info = 'rule'
         sample['match_info'] = match_info
-        sample['context'] = qa['key_str_q']
         # sample['ingredients'] = ingredients
         # sample['directions'] = directions
         return sample
@@ -840,6 +857,7 @@ def auto_label(recipe):
             'family_id': qa['family_id'],
             'qa_type': qa['type'],
             'match_info': None,
+            'key_str_q': qa['key_str_q'],
             # 'ingredients': None,
             # 'directions': None,
         }
@@ -908,7 +926,6 @@ def analyze_qa(qa_data_df, recipes, mode):
     # hid_df = direction_all[direction_all['hidden'] != '_']
     # hid_df = hid_df[hid_df['entity'] != 'B-EVENT']
     # qa_ori_all = pd.concat([recipe['qa_df'] for recipe in recipes.values()])
-
 
     # qa_ori_case = qa_ori_all[qa_ori_all['question'].apply(lambda x: x.startswith('How do you '))]
     # qa_ori_case = qa_ori_case[qa_ori_case['family_id'] == 2]
@@ -1032,17 +1049,27 @@ def data_process(dataset_name):
     }
 
     # 最终的返回数据集（规则）
-    data_rule_df = data_df['rule' == data_df['match_info']]
+    # data_rule_df = data_df['rule' == data_df['match_info']]
+    data_rule_df = data_df
     dataset_rule = {
-        'qa_data': data_rule_df[['id', 'question', 'answer', 'qa_type', 'context']],
+        'qa_data': data_rule_df[['id', 'question', 'answer', 'qa_type', 'key_str_q']],
         'recipe_data': recipes,
     }
+
+    # 存储数据到文件
+    # data_df.to_csv(os.path.join(data_uesd_dir, 'data_qa.csv'), index=False, sep='\x01', encoding='utf-8')
+    # data_drt = pd.concat([df for info in recipes.values() for df in info['direction_dfs']])
+    # data_drt.to_csv(os.path.join(data_uesd_dir, 'data_direction.csv'), index=False, sep='\x01', encoding='utf-8')
+    # data_drtn = pd.concat([df for info in recipes.values() for df in info['new_direction_dfs']])
+    # data_drtn.to_csv(os.path.join(data_uesd_dir, 'data_direction_new.csv'), index=False, sep='\x01', encoding='utf-8')
+    # data_igdt = pd.concat([df for info in recipes.values() for df in info['ingredient_dfs']])
+    # data_igdt.to_csv(os.path.join(data_uesd_dir, 'data_ingredient.csv'), index=False, sep='\x01', encoding='utf-8')
 
     # 分析材料清单和操作步骤的额外信息
     analyze_recipe(recipes, False)
 
     # 分析自动标注数据
-    analyze_qa(data_df, recipes, True)
+    analyze_qa(data_df, recipes, False)
 
     return dataset_model, dataset_rule
 

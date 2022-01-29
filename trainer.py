@@ -465,7 +465,7 @@ def extract_qa_manager(raw_datasets):
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    training_args.__setattr__('model_name_for_optimizer', os.path.split(model_args.model_name_or_path)[1].split('-')[0])
+    training_args.__setattr__('model_name_for_optimizer', 'bert')
     training_args.__setattr__('optimizer_type', model_args.optimizer_type)
 
     # 获取upos和entity的词表长度信息
@@ -803,7 +803,7 @@ def extract_qa_manager(raw_datasets):
         compute_metrics=compute_metrics,
     )
     # todo
-    optimizer = utils.make_optimizer(training_args, model)
+    # optimizer = utils.make_optimizer(training_args, model)
     # trainer.optimizer = optimizer
 
     # Training
