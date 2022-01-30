@@ -92,6 +92,10 @@ def analyze_log(filename=None):
 
 
 if __name__ == "__main__":
+    dataset_model_train, dataset_rule_train = data_process('train')
+    dataset_model_vali, dataset_rule_vali = data_process('vali')
+    dataset_model_test, dataset_rule_test = data_process('test')
+    d = pd.concat([x['data_drt'] for x in dataset_rule_train['recipe_data'].values()]+[x['data_drt'] for x in dataset_rule_test['recipe_data'].values()]+[x['data_drt'] for x in dataset_rule_vali['recipe_data'].values()])
     # analyze_log()
     print("BEGIN")
 
@@ -105,7 +109,7 @@ if __name__ == "__main__":
         dataset_model_test, dataset_rule_test = data_process('test')
         dataset_model_test = {key: value[:2] for key, value in dataset_model_test.items()}
         dataset_model_test = Dataset.from_dict(dataset_model_test)
-        datasets_model = {'train': dataset_model_vali, 'validation': dataset_model_vali, 'test': dataset_model_test}
+        datasets_model = {'train': dataset_model_vali, 'validation': dataset_model_vali, 'test': dataset_model_vali}
     else:
         dataset_model_train, dataset_rule_train = data_process('train')
         dataset_model_train = Dataset.from_dict(dataset_model_train)
@@ -115,14 +119,23 @@ if __name__ == "__main__":
         dataset_model_test = Dataset.from_dict(dataset_model_test)
         datasets_model = {'train': dataset_model_train, 'validation': dataset_model_vali, 'test': dataset_model_test}
 
+    # 获取模型结果
+    model_pred_result, output_dir = extract_qa_manager(datasets_model)
+    if True:
+        model_pred_result['score'] = model_pred_result.apply(lambda r: 1 if r['answer'] == r['pred_answer'] else 0,
+                                                             axis=1)
+        for qa_type in model_pred_result['qa_type'].value_counts().index.to_list():
+            print('=========={}=========='.format(qa_type))
+            print(model_pred_result[model_pred_result['qa_type'] == qa_type]['score'].value_counts(
+                normalize=True).sort_index())
+    model_pred_result['pred_answer'] = model_pred_result['pred_answer'].apply(
+        lambda x: None if (x == 'N/A' or x == '') else x)
+
     # 获取规则结果
     rule_pred_result = rule_for_qa(dataset_rule_test)
     rule_pred_result['pred_answer'] = rule_pred_result['pred_answer'].apply(
         lambda x: None if (x == 'N/A' or x == '') else x)
-    # 获取模型结果
-    model_pred_result, output_dir = extract_qa_manager(datasets_model)
-    model_pred_result['pred_answer'] = model_pred_result['pred_answer'].apply(
-        lambda x: None if (x == 'N/A' or x == '') else x)
+
     # 汇总规则和模型的结果
     used_cols = ['recipe_id', 'question_id', 'question', 'pred_answer', 'answer', 'qa_type']
     pred_result = pd.concat([rule_pred_result[used_cols], model_pred_result[used_cols]])
@@ -149,9 +162,9 @@ if __name__ == "__main__":
         json.dump(no_rule_r2vq_pred_result, f)
 
     # 测试用
-    if os.path.exists(u'D:'):
-        pred_result['family_id'] = pred_result['question_id'].apply(lambda x: x.split('-')[0])
-        # pred_result['pred_answer'] = None
-        pred_result['pred_answer'] = pred_result['family_id'].apply(lambda x: None if x == '18' else '')
+    # if os.path.exists(u'D:'):
+    #     pred_result['family_id'] = pred_result['question_id'].apply(lambda x: x.split('-')[0])
+    #     # pred_result['pred_answer'] = None
+    #     pred_result['pred_answer'] = pred_result['family_id'].apply(lambda x: None if x == '18' else '')
 
     print('END\n')

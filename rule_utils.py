@@ -24,6 +24,7 @@ def parse_id(row):
     return recipe_id, question_id
 
 
+# 解析hidden，返回字典，元素名称里的下划线未被替换
 def parse_hidden(hiddens, reserve_idx=False):
     if hiddens == '_':
         return {}
@@ -36,6 +37,38 @@ def parse_hidden(hiddens, reserve_idx=False):
     return hidden_dict
 
 
+# 解析coref，返回列表，元素名称里的下划线未被替换
+def parse_coref(corefs, reserve_idx=False):
+    if corefs == '_':
+        return []
+    coref_list = corefs.split(':')
+    if reserve_idx == False:
+        coref_list = [coref.split('.')[0] for coref in coref_list]
+    return coref_list
+
+
+def collect_segment_items(key_verb_row, segment, argx_col):
+    get_segment_entity_info()
+    get_segment_argx_info(segment, argx_col)
+    parse_hidden(key_verb_row['hidden'])
+    parse_coref(key_verb_row['coref'])
+
+
+# 提取hidden列和coref列的标注信息，并分割为token，格式为list[list[]] todo 带验证
+def collect_annotation_items(segment, reserve_idx=False):
+    items = []
+    for hidden in segment['hidden'].tolist():
+        hidden_dict = parse_hidden(hidden)
+        hidden_items = [item.split('_') for items in hidden_dict.values() for item in items]
+        items.extend(hidden_items)
+    for coref in segment['coref'].tolist():
+        coref_list = parse_coref(coref)
+        coref_items = [item.split('_') for item in coref_list]
+        items.extend(coref_items)
+    return items
+
+
+# 提取hidden列中，命中target的所有元素
 def collect_hidden(hiddens, target):
     lemme_target = '_'.join([lm.lemmatize(token, 'n') for token in target.split(' ') if token != ''])
     collected_items = []
@@ -48,6 +81,7 @@ def collect_hidden(hiddens, target):
     return collected_items
 
 
+# 提取coref列中，命中target的所有元素
 def collect_coref(corefs, target):
     lemme_target = '_'.join([lm.lemmatize(token, 'n') for token in target.split(' ') if token != ''])
     collected_items = []
@@ -160,7 +194,7 @@ def locate_direction(key_string, data_drt):
             matched_drts.append([seq_id, direction])
             continue
 
-    return matched_drts
+    return matched_drts, q_kws
 
 
 # 截取关键动词的关联上下文
@@ -173,6 +207,20 @@ def locate_direction_segment(idx, direction):
     # 若关键动词，在argX列没有标识，不能够提取出上下文，则返回关键动词的当前行
     seg_df = direction[idx:idx + 1]
     return seg_df, None
+
+
+# 根据相应列的取值，截取操作步骤的片段 todo 待验证
+def get_conditional_segment(old_segment, col_name, col_values, joint_rule='or'):
+    flag = None
+    for col_value in col_values:
+        if joint_rule == 'or':
+            flag = old_segment[col_name] == col_value if flag is None else flag | (old_segment[col_name] == col_value)
+        elif joint_rule == 'and':
+            flag = old_segment[col_name] == col_value if flag is None else flag & (old_segment[col_name] == col_value)
+        else:
+            raise Exception('Unknow joint_rule name!')
+    new_segment = old_segment[flag]
+    return new_segment
 
 
 # 在一句操作步骤中，定位到关键词的位置

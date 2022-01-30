@@ -21,7 +21,7 @@ from init_config import src_dir, data_dir
 from data_process import data_process, token_match, qa_type_rule, type_q_regex_pattern_dict, get_keywords, q_stopwords
 from rule_utils import parse_id, parse_hidden, get_segment_entity_info, get_segment_argx_info, \
     token_states_all_in_sent, locate_direction, locate_direction_segment, get_keyword_loc, join_items, collect_hidden, \
-    collect_coref
+    collect_coref, get_conditional_segment, collect_annotation_items, collect_segment_items
 
 with open(os.path.join(src_dir, 'present_tense.json'), 'r', encoding='utf-8') as f:
     present_tense_map = json.load(f)
@@ -268,11 +268,11 @@ def get_result_and_context(target_result, direction_dfs, tmp=None):
 
 
 def act_ref_tool_or_full_act(key_str_q, data_drt, data_drt_new, question=None, answer=None):
-    # 根据核心文本，匹配操作步骤
-    matched_drts = locate_direction(key_str_q, data_drt_new)
-    # 遍历匹配到的所有操作步骤
+    # 根据核心文本，匹配和定位操作步骤
+    matched_drts, q_kws = locate_direction(key_str_q, data_drt_new)
     # tools = []
     # attributes = []
+    # 遍历匹配到的所有操作步骤
     for seq_id, _ in matched_drts:
         # 提取核心动词
         key_verb = key_str_q.split(' ')[0]
@@ -393,6 +393,30 @@ def rule_for_qa(dataset):
         igdt = recipe['data_igdt']
         directions = pd.concat(direction_dfs)
 
+        if 'act_ref_igdt' == qa_type:
+            # 根据核心文本，匹配和定位操作步骤
+            matched_drts, q_kws = locate_direction(key_str_q, data_drt_new)
+            # 遍历匹配到的所有操作步骤
+            for seq_id, _ in matched_drts:
+                # 提取核心动词
+                key_verb = key_str_q.split(' ')[0]
+                direction = data_drt[data_drt['seq_id'] == seq_id]
+                # 定位核心词的可能位置
+                key_verb_idxs = get_keyword_loc(key_verb, direction)
+                for key_verb_idx in key_verb_idxs:
+                    # 截取关键字段
+                    seg_df, col_name = locate_direction_segment(key_verb_idx, direction)
+                    # todo (done)检验keyword是否都在seg里，copy to another
+                    items = collect_annotation_items(seg_df)
+                    seg_tokens = seg_df['form'].tolist()+seg_df['lemma'].tolist()
+                    match_flag = token_states_all_in_sent(q_kws, [t for ts in items for t in ts]+seg_tokens)
+                    # 问句与截取出的字段，相匹配
+                    if match_flag:
+                        key_verb_row = direction.iloc[key_verb_idx]
+                    # 问句与截取出的字段，不相匹配
+                    else:
+                        continue
+            return ''
         if 'act_first' == qa_type:
             ret = act_first(key_str_q, data_drt_new)
             return ret

@@ -38,7 +38,28 @@ qa_type_model = {
     2: ['act_igdt_ref_place', 'act_duration', 'act_extent', 'act_reason', 'act_from_where',
         'act_couple_igdt', 'igdt_amount', 'how_would_you', 'what_do_you'],  # 整句匹配
 }
-
+token_pos = {}
+token_pos['punct'] = ['-', ';', '.', ',', '(', ')', '"', '!', '*', "'", ']', '=', '\\"', '[', '~', '...', '?', '..',
+                      '--', '---', '|']
+token_pos['adp'] = ['into', 'in', 'of', 'for', 'over', 'up', 'to', 'with', 'until', 'out', 'aside', 'on', 'from', 'off',
+                    'at', 'under', 'together', 'after', 'as', 'onto', 'like', 'through', 'around', 'till', 'than',
+                    'near', 'inside', 'down', 'about', 'between', 'before', 'til', 'except', 'along', 'above', 'by',
+                    'thru', 'per', 'across', 'toward', 'away', '@', 'during', 'minus', 'below', 'atop', 'despite',
+                    'amongst', 'without', 'towards', 'within', 'against', 'among', 'upon', 'round', 'ofhot']
+token_pos['cconj'] = ['and', 'or', 'but', 'either', '&', 'yet', 'both', 'plus']
+token_pos['sconj'] = ['until', 'of', 'if', 'that', 'before', 'when', 'by', 'to', 'so', 'while', 'whether', 'as', 'till',
+                      'into', 'after', 'in', 'how', 'for', 'once', 'on', 'around', 'from', 'with', 'without', 'over',
+                      'during', 'unless', 'since', 'although', 'because', 'except', 'under', 'through', 'at', 'than']
+token_pos['det'] = ['the', 'a', 'all', 'some', 'each', 'any', 'that', 'both', 'an', 'every', 'this', 'another', 'these',
+                    'what', '1-inch', 'half', 'seekh', 'no', 'quite', 'those', 'whatever', 'anatto']
+token_pos['part'] = ['to', "n't", 'not', "'s", "'", 'n']
+token_pos['pron'] = ['it', 'them', 'that', 'your', 'you', 'i', 'he', 'all', 'which', 'this', 'my', 'these', 'they',
+                     'our', 'their', 'who', 'half', 'we', 'everything', 'some', 'there', 'whatever', 'its', 'what',
+                     'mine', 'me', 'itself', 'nothing', 'yourself', 'those', 'the', 'his', 'anything', 'themselves']
+token_pos['aux'] = ['is', 'are', 'wo', "'re", 'would', "'s", 'can', 'be', 'was', 'must', 'does', 'do', 'will', 'should',
+                    'have', 'has', 'been', 'don"t', "'ll", 'may', 'could', 'might', 'had', 'won"t', 'ca', 'being',
+                    'gets', 'ought', "'d", "'m", "'ve", 'were']
+token_pos['sym'] = ['-', 'x', '/', '^^', '*', 'o', 'approx', '#', ')', '%']
 q_stopwords = ['', 'the', 'with', 'in', 'to', 'on', 'from', 'a', 'then', 'for', 'and', 'by', 'into']
 
 """
