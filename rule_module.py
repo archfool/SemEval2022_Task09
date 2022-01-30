@@ -446,17 +446,19 @@ def rule_for_qa(dataset):
             match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
             pred_answers = []
             for info in match_infos:
-                entity_habitat = info['entity']['habitat']
-                hidden_habitat = info['hidden'].get('habitat', [])
-                hidden_habitat = filter_items_by_id(hidden_habitat)
-                if len(hidden_habitat) > 0:
-                    pred_answer = hidden_habitat[0].replace('_', ' ')
-                    pred_answers.append(pred_answer)
-                elif len(entity_habitat) > 0:
-                    pred_answer = entity_habitat[0]
-                    pred_answers.append(pred_answer)
-                else:
+                argx_base_types = ['Destination', 'Location', 'Co-Patient']
+                argx_types = ['B-' + argx_base_type for argx_base_type in argx_base_types] \
+                             + ['I-' + argx_base_type for argx_base_type in argx_base_types]
+                if info['argx_col'] is None:
                     continue
+                else:
+                    seg = get_conditional_segment(old_segment=info['seg'], col_name=info['argx_col'],
+                                                  col_values=argx_types)
+                    if len(seg) > 0:
+                        pred_answer = ' '.join(seg['form'].tolist())
+                        pred_answers.append(pred_answer)
+                    else:
+                        continue
             if len(pred_answers) != 0:
                 return pred_answers[0]
             else:
@@ -510,6 +512,27 @@ def rule_for_qa(dataset):
                 return ret_string.replace('_', ' ')
             else:
                 return 'N/A'
+        elif 'act_duration' == qa_type:
+            match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
+            pred_answers = []
+            for info in match_infos:
+                argx_base_types = ['Time']
+                argx_types = ['B-' + argx_base_type for argx_base_type in argx_base_types] \
+                             + ['I-' + argx_base_type for argx_base_type in argx_base_types]
+                if info['argx_col'] is None:
+                    continue
+                else:
+                    seg = get_conditional_segment(old_segment=info['seg'], col_name=info['argx_col'],
+                                                  col_values=argx_types)
+                    if len(seg) > 0:
+                        pred_answer = ' '.join(seg['form'].tolist())
+                        pred_answers.append(pred_answer)
+                    else:
+                        continue
+            if len(pred_answers) != 0:
+                return pred_answers[0]
+            else:
+                return 'N/A'
         else:
             return '[RESERVE]'
             # raise ValueError('invalid rule qa_type')
@@ -537,10 +560,12 @@ if __name__ == '__main__':
     # rule_result['score'] = rule_result.apply(f1_metric, axis=1)
     # rule_result['tmp_score'] = rule_result.apply(tmp_metric, axis=1)
 
-    print(rule_result['qa_type'].value_counts(normalize=True))
+    # print(rule_result['qa_type'].value_counts(normalize=True))
     print('========== score: {}=========='.format(round(rule_result['score'].mean(), 2)))
     for qa_type in rule_result['qa_type'].value_counts().index.to_list():
         print('=========={}=========='.format(qa_type))
+        print('qa_type per: {}%'.format(
+            round(len(rule_result[rule_result['qa_type'] == qa_type]) / len(rule_result) * 100, 2)))
         print(rule_result[rule_result['qa_type'] == qa_type]['score'].value_counts(normalize=True).sort_index())
     # for qa_type in ['act_first', 'place_before_act', 'count_times', 'count_nums']:
     #     print('=========={}=========='.format(qa_type))
