@@ -47,13 +47,6 @@ def parse_coref(corefs, reserve_idx=False):
     return coref_list
 
 
-def collect_segment_items(key_verb_row, segment, argx_col):
-    get_segment_entity_info()
-    get_segment_argx_info(segment, argx_col)
-    parse_hidden(key_verb_row['hidden'])
-    parse_coref(key_verb_row['coref'])
-
-
 # 提取hidden列和coref列的标注信息，并分割为token，格式为list[list[]] todo 带验证
 def collect_annotation_items(segment, reserve_idx=False):
     items = []
@@ -94,17 +87,29 @@ def collect_coref(corefs, target):
 
 
 # 提取菜单文本段落的entity字段的信息
-def get_segment_entity_info(direction_segment, anchor_verb_idx=None):
+def get_segment_entity_info(direction_segment, anchor_verb_idx=None, argx_col_name=None):
     segs = {}
     segs['habitat'] = direction_segment[
         (direction_segment['entity'] == 'B-HABITAT') | (direction_segment['entity'] == 'I-HABITAT')]
     segs['tool'] = direction_segment[
         (direction_segment['entity'] == 'B-TOOL') | (direction_segment['entity'] == 'I-TOOL')]
-    segs['igdt'] = direction_segment[
-        (direction_segment['entity'] == 'B-EXPLICITINGREDIENT')
-        | (direction_segment['entity'] == 'I-EXPLICITINGREDIENT')
-        | (direction_segment['entity'] == 'B-IMPLICITINGREDIENT')
-        | (direction_segment['entity'] == 'I-IMPLICITINGREDIENT')]
+    # todo 临时的兼容性措施
+    if argx_col_name is None:
+        segs['igdt'] = direction_segment[
+            (direction_segment['entity'] == 'B-EXPLICITINGREDIENT')
+            | (direction_segment['entity'] == 'I-EXPLICITINGREDIENT')
+            | (direction_segment['entity'] == 'B-IMPLICITINGREDIENT')
+            | (direction_segment['entity'] == 'I-IMPLICITINGREDIENT')]
+    else:
+        argx_type = direction_segment[argx_col_name].apply(lambda x: x.split('-')[-1])
+        argx_flag = (argx_type == 'Patient') | (argx_type == 'Theme')
+        segs['igdt'] = direction_segment[
+            ((direction_segment['entity'] == 'B-EXPLICITINGREDIENT')
+             | (direction_segment['entity'] == 'I-EXPLICITINGREDIENT')
+             | (direction_segment['entity'] == 'B-IMPLICITINGREDIENT')
+             | (direction_segment['entity'] == 'I-IMPLICITINGREDIENT'))
+            & argx_flag
+            ]
 
     # 添加食材、容器、工具信息
     seg_infos = {key: [] for key in segs.keys()}
@@ -245,8 +250,71 @@ def join_items(item_list, empty_return=''):
         item_list = [' '.join(item) for item in item_list]
     # 按照口语习惯，拼接item
     ret_string = ' and '.join([x for x in [', '.join(item_list[:-1]), item_list[-1]] if x != ''])
-    # ret_string = ret_string.replace('_', ' ')
+    ret_string = ret_string.replace('_', ' ')
     return ret_string
+
+
+# 对于id重复的item，保留第一个，丢弃第二个
+def filter_items_by_id(items: list):
+    used_ids = []
+    new_items = []
+    for item in items:
+        new_item, id = item.split('.', 1)
+        if id in used_ids:
+            continue
+        else:
+            used_ids.append(id)
+            new_items.append(new_item)
+    return new_items
+
+
+# 提取segment内的所有item信息
+def collect_segment_items(key_verb_row, segment, argx_col_name):
+    entity_items = get_segment_entity_info(segment, argx_col_name=argx_col_name)
+    hidden_items = parse_hidden(key_verb_row['hidden'], reserve_idx=True)
+    coref_items = parse_coref(key_verb_row['coref'], reserve_idx=True)
+    argx_items = {} if argx_col_name is None else get_segment_argx_info(segment, argx_col_name)
+    ret_dict = {
+        'entity': entity_items,
+        'hidden': hidden_items,
+        'coref': coref_items,
+        'argx': argx_items,
+    }
+    return ret_dict
+
+
+# 核心定位函数：根据【问题】，定位到相关上下文，并返回答案关键词及其它信息
+def kernal_location_function(key_str_q, data_drt, data_drt_new):
+    ret_dic_list = []
+    # 根据核心文本，匹配和定位操作步骤
+    matched_drts, q_kws = locate_direction(key_str_q, data_drt_new)
+    # 遍历匹配到的所有操作步骤
+    for seq_id, _ in matched_drts:
+        # 提取核心动词 todo 第一个动词可能不是核心动词
+        key_verb = key_str_q.split(' ')[0]
+        direction = data_drt[data_drt['seq_id'] == seq_id]
+        # 定位核心词的可能位置
+        key_verb_idxs = get_keyword_loc(key_verb, direction)
+        # 遍历核心动词的可能位置
+        for key_verb_idx in key_verb_idxs:
+            # 截取核心动词的关联上下文
+            segment, col_name = locate_direction_segment(key_verb_idx, direction)
+            # todo (done)检验keyword是否都在seg里，copy to another
+            items = collect_annotation_items(segment)
+            seg_tokens = segment['form'].tolist() + segment['lemma'].tolist()
+            match_flag = token_states_all_in_sent(q_kws, [t for ts in items for t in ts] + seg_tokens)
+            key_verb_row = direction.iloc[key_verb_idx]
+            ret_dic = {'row': key_verb_row, 'seg': segment, 'drt': direction, 'q_kws': q_kws, 'argx_col': col_name}
+            # 若问句与截取出的字段，相匹配
+            if match_flag:
+                key_verb_row = direction.iloc[key_verb_idx]
+                item_infos = collect_segment_items(key_verb_row, segment, col_name)
+                ret_dic.update(item_infos)
+                ret_dic_list.append(ret_dic)
+            # 若问句与截取出的字段，不相匹配
+            else:
+                continue
+    return ret_dic_list
 
 
 if __name__ == '__main__':

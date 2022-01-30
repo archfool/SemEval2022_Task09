@@ -95,7 +95,7 @@ if __name__ == "__main__":
     dataset_model_train, dataset_rule_train = data_process('train')
     dataset_model_vali, dataset_rule_vali = data_process('vali')
     dataset_model_test, dataset_rule_test = data_process('test')
-    d = pd.concat([x['data_drt'] for x in dataset_rule_train['recipe_data'].values()]+[x['data_drt'] for x in dataset_rule_test['recipe_data'].values()]+[x['data_drt'] for x in dataset_rule_vali['recipe_data'].values()])
+    a = pd.concat([x['data_drt'] for x in dataset_rule_train['recipe_data'].values()]+[x['data_drt'] for x in dataset_rule_test['recipe_data'].values()]+[x['data_drt'] for x in dataset_rule_vali['recipe_data'].values()])
     # analyze_log()
     print("BEGIN")
 

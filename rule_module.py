@@ -21,7 +21,8 @@ from init_config import src_dir, data_dir
 from data_process import data_process, token_match, qa_type_rule, type_q_regex_pattern_dict, get_keywords, q_stopwords
 from rule_utils import parse_id, parse_hidden, get_segment_entity_info, get_segment_argx_info, \
     token_states_all_in_sent, locate_direction, locate_direction_segment, get_keyword_loc, join_items, collect_hidden, \
-    collect_coref, get_conditional_segment, collect_annotation_items, collect_segment_items
+    collect_coref, get_conditional_segment, collect_annotation_items, collect_segment_items, kernal_location_function, \
+    filter_items_by_id
 
 with open(os.path.join(src_dir, 'present_tense.json'), 'r', encoding='utf-8') as f:
     present_tense_map = json.load(f)
@@ -394,39 +395,72 @@ def rule_for_qa(dataset):
         directions = pd.concat(direction_dfs)
 
         if 'act_ref_igdt' == qa_type:
-            # 根据核心文本，匹配和定位操作步骤
-            matched_drts, q_kws = locate_direction(key_str_q, data_drt_new)
-            # 遍历匹配到的所有操作步骤
-            for seq_id, _ in matched_drts:
-                # 提取核心动词
-                key_verb = key_str_q.split(' ')[0]
-                direction = data_drt[data_drt['seq_id'] == seq_id]
-                # 定位核心词的可能位置
-                key_verb_idxs = get_keyword_loc(key_verb, direction)
-                for key_verb_idx in key_verb_idxs:
-                    # 截取关键字段
-                    seg_df, col_name = locate_direction_segment(key_verb_idx, direction)
-                    # todo (done)检验keyword是否都在seg里，copy to another
-                    items = collect_annotation_items(seg_df)
-                    seg_tokens = seg_df['form'].tolist()+seg_df['lemma'].tolist()
-                    match_flag = token_states_all_in_sent(q_kws, [t for ts in items for t in ts]+seg_tokens)
-                    # 问句与截取出的字段，相匹配
-                    if match_flag:
-                        key_verb_row = direction.iloc[key_verb_idx]
-                    # 问句与截取出的字段，不相匹配
-                    else:
-                        continue
-            return ''
-        if 'act_first' == qa_type:
+            match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
+            pred_answers = []
+            for info in match_infos:
+                entity_igdt = info['entity']['igdt']
+                hidden_drop = info['hidden'].get('drop', [])
+                hidden_drop = filter_items_by_id(hidden_drop)
+                hidden_shadow = info['hidden'].get('shadow', [])
+                hidden_shadow = filter_items_by_id(hidden_shadow)
+                igdt = entity_igdt + hidden_drop
+                if len(igdt) > 0:
+                    pred_answer = 'the ' + join_items(igdt)
+                    pred_answers.append(pred_answer)
+                else:
+                    continue
+            if len(pred_answers) != 0:
+                return pred_answers[0]
+            else:
+                return 'N/A'
+        elif 'act_first' == qa_type:
             ret = act_first(key_str_q, data_drt_new)
             return ret
         elif 'act_ref_tool_or_full_act' == qa_type:
             pred_answer = act_ref_tool_or_full_act(key_str_q, data_drt, data_drt_new, question, answer)
             return pred_answer
+        elif 'act_ref_place' == qa_type:
+            match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
+            pred_answers = []
+            for info in match_infos:
+                entity_habitat = info['entity']['habitat']
+                hidden_habitat = info['hidden'].get('habitat', [])
+                hidden_habitat = filter_items_by_id(hidden_habitat)
+                if len(hidden_habitat) > 0:
+                    pred_answer = hidden_habitat[0].replace('_', ' ')
+                    pred_answers.append(pred_answer)
+                elif len(entity_habitat) > 0:
+                    pred_answer = entity_habitat[0]
+                    pred_answers.append(pred_answer)
+                else:
+                    continue
+            if len(pred_answers) != 0:
+                return pred_answers[0]
+            else:
+                return 'N/A'
         elif 'place_before_act' == qa_type:
             igdt, act = key_str_q.split('|')
             place = place_before_act(igdt, act, new_direction_dfs, direction_dfs)
             return 'N/A' if place is None else place
+        elif 'act_igdt_ref_place' == qa_type:
+            match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
+            pred_answers = []
+            for info in match_infos:
+                entity_habitat = info['entity']['habitat']
+                hidden_habitat = info['hidden'].get('habitat', [])
+                hidden_habitat = filter_items_by_id(hidden_habitat)
+                if len(hidden_habitat) > 0:
+                    pred_answer = hidden_habitat[0].replace('_', ' ')
+                    pred_answers.append(pred_answer)
+                elif len(entity_habitat) > 0:
+                    pred_answer = entity_habitat[0]
+                    pred_answers.append(pred_answer)
+                else:
+                    continue
+            if len(pred_answers) != 0:
+                return pred_answers[0]
+            else:
+                return 'N/A'
         elif 'count_times' == qa_type:
             collected_hidden = collect_hidden(directions['hidden'], key_str_q)
             collected_coref = collect_coref(directions['coref'], key_str_q)
@@ -481,7 +515,7 @@ def rule_for_qa(dataset):
             # raise ValueError('invalid rule qa_type')
 
     qa_df[['recipe_id', 'question_id']] = qa_df.apply(parse_id, axis=1, result_type="expand")
-    if False:
+    if True:
         qa_df['pred_answer'] = qa_df.apply(get_answer_by_rule, axis=1)
     else:
         qa_df['pred_answer'] = None
@@ -504,7 +538,7 @@ if __name__ == '__main__':
     # rule_result['tmp_score'] = rule_result.apply(tmp_metric, axis=1)
 
     print(rule_result['qa_type'].value_counts(normalize=True))
-    # print('========== score: {}=========='.format(round(rule_result['score'].mean(), 2)))
+    print('========== score: {}=========='.format(round(rule_result['score'].mean(), 2)))
     for qa_type in rule_result['qa_type'].value_counts().index.to_list():
         print('=========={}=========='.format(qa_type))
         print(rule_result[rule_result['qa_type'] == qa_type]['score'].value_counts(normalize=True).sort_index())
