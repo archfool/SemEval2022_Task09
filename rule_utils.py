@@ -173,7 +173,7 @@ def get_segment_argx_info(direction_segment, col_name):
 
 
 # 判断若干个关键词keywords，是否全部被包含在sent_tokens中。每个关键词keyword包含它的多个时态
-def token_states_all_in_sent(keywords, sent_tokens):
+def keywords_states_all_in_segment(keywords, sent_tokens):
     match_cnt = 0
     for keyword in keywords:
         if token_match(keyword, sent_tokens):
@@ -194,7 +194,7 @@ def locate_direction(key_string, data_drt):
         direction_tokens = direction['form'].tolist()
         direction_tokens_lemma = direction['lemma'].tolist()
         # 判断当前句是否匹配到【问题】
-        match_flag = token_states_all_in_sent(q_kws, direction_tokens + direction_tokens_lemma)
+        match_flag = keywords_states_all_in_segment(q_kws, direction_tokens + direction_tokens_lemma)
         if match_flag:
             matched_drts.append([seq_id, direction])
             continue
@@ -288,7 +288,7 @@ def kernal_location_function(key_str_q, data_drt, data_drt_new):
             # todo (done)检验keyword是否都在seg里，copy to another
             items = collect_annotation_items(segment)
             seg_tokens = segment['form'].tolist() + segment['lemma'].tolist()
-            match_flag = token_states_all_in_sent(q_kws, [t for ts in items for t in ts] + seg_tokens)
+            match_flag = keywords_states_all_in_segment(q_kws, [t for ts in items for t in ts] + seg_tokens)
             key_verb_row = direction.iloc[key_verb_idx]
             ret_dic = {'row': key_verb_row, 'seg': segment, 'drt': direction, 'q_kws': q_kws, 'argx_col': col_name}
             # 若问句与截取出的字段，相匹配
@@ -328,7 +328,7 @@ def get_conditional_segment(old_segment, col_name, col_values, qa_type, joint_ru
 # 从原文中直接抽取答案的方法
 def kernal_extract_answer_function(qa_type, key_str_q, data_drt, data_drt_new, question=None, answer=None):
     argx_tpye_map = {
-        'act_ref_tool_or_full_act': [],
+        'act_ref_tool_or_full_act': ['Attribute', 'Instrument'],
         'act_igdt_ref_place': ['Destination', 'Location', 'Co-Patient'],
         'act_duration': ['Time'],
         'act_extent': ['Result'],
@@ -338,19 +338,66 @@ def kernal_extract_answer_function(qa_type, key_str_q, data_drt, data_drt_new, q
         'igdt_amount': ['Extent'],
     }
 
-    # todo 测试用
-    if qa_type != 'act_ref_tool_or_full_act':
-        return []
-
     match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
     pred_answers = []
     for info in match_infos:
-        argx_base_types = argx_tpye_map[qa_type]
-        argx_types = ['B-' + argx_base_type for argx_base_type in argx_base_types] \
-                     + ['I-' + argx_base_type for argx_base_type in argx_base_types]
         if info['argx_col'] is None:
             continue
+        elif qa_type == 'act_ref_tool_or_full_act':
+            # 抽取问题的谓语、宾语片段 todo 可能不含Co-Patient/Co-Theme类别
+            q_extract_argx_types = ['B-V', 'I-V', 'D-V', 'B-Patient', 'I-Patient', 'B-Co-Patient', 'I-Co-Patient',
+                                    'B-Theme', 'I-Theme', 'B-Co-Theme', 'I-Co-Theme']
+            question_seg = get_conditional_segment(old_segment=info['seg'], col_name=info['argx_col'],
+                                                   qa_type=qa_type, col_values=q_extract_argx_types)
+            items = collect_annotation_items(question_seg)
+            seg_tokens = question_seg['form'].tolist() + question_seg['lemma'].tolist()
+            q_extract_tokens = []
+            for token in key_str_q.split(' '):
+                kws = [(token, lm.lemmatize(token, 'v'), lm.lemmatize(token, 'n'))]
+                token_match_flag = keywords_states_all_in_segment(kws, [t for ts in items for t in ts] + seg_tokens)
+                if token_match_flag:
+                    q_extract_tokens.append(token)
+            pred_answer_head = ' '.join(q_extract_tokens)
+            # 抽取原文的Attribute片段
+            attribute_argx_types = ['B-Attribute', 'I-Attribute']
+            attribute_seg = get_conditional_segment(old_segment=info['seg'], col_name=info['argx_col'],
+                                                    qa_type=qa_type, col_values=attribute_argx_types)
+            attribute_str = ' '.join(attribute_seg['form'].tolist()) if len(attribute_seg) > 0 else None
+            # 抽取原文的Instrument片段
+            instrument_argx_types = ['B-Instrument', 'I-Instrument']
+            instrument_seg = get_conditional_segment(old_segment=info['seg'], col_name=info['argx_col'],
+                                                     qa_type=qa_type, col_values=instrument_argx_types)
+            instrument_str = ' '.join(instrument_seg['form'].tolist()) if len(instrument_seg) > 0 else None
+            # 判断是将Attribute如答案还是将Instrument拼接入答案
+            if attribute_str is None and instrument_str is None:
+                continue
+            elif attribute_str is not None and instrument_str is None:
+                pred_answer_tail = attribute_str
+            elif attribute_str is None and instrument_str is not None:
+                pred_answer_tail = instrument_str
+            elif attribute_str is not None and instrument_str is not None:
+                if key_str_q.__contains__(attribute_str) and key_str_q.__contains__(instrument_str):
+                    raise Exception('key_str_q.__contains__(attribute_str) and key_str_q.__contains__(instrument_str)')
+                if key_str_q.__contains__(attribute_str) and not key_str_q.__contains__(instrument_str):
+                    pred_answer_tail = instrument_str
+                elif not key_str_q.__contains__(attribute_str) and key_str_q.__contains__(instrument_str):
+                    pred_answer_tail = attribute_str
+                elif not key_str_q.__contains__(attribute_str) and not key_str_q.__contains__(instrument_str):
+                    print('key_str_q not contain both attribute_str and instrument_str')
+                    print('answer: {}\nattribute: {}\ninstrument: {}'.format(answer, attribute_str, instrument_str))
+                    # todo 随便选一个attribute_str
+                    pred_answer_tail = attribute_str
+                else:
+                    raise Exception('would not enter this if-else branch')
+            else:
+                raise Exception('if attribute_str is None and instrument_str is None')
+            # 拼接答案
+            pred_answer = pred_answer_head + ' ' + pred_answer_tail
+            pred_answers.append(pred_answer)
         else:
+            argx_base_types = argx_tpye_map[qa_type]
+            argx_types = ['B-' + argx_base_type for argx_base_type in argx_base_types] \
+                         + ['I-' + argx_base_type for argx_base_type in argx_base_types]
             seg = get_conditional_segment(old_segment=info['seg'], col_name=info['argx_col'], qa_type=qa_type,
                                           col_values=argx_types)
             if len(seg) > 0:
@@ -362,8 +409,59 @@ def kernal_extract_answer_function(qa_type, key_str_q, data_drt, data_drt_new, q
 
 
 # 从标注知识中抽取答案的方法
-def kernal_knowledge_answer_function(key_str_q, data_drt, data_drt_new):
-    return None
+def kernal_knowledge_answer_function(qa_type, key_str_q, data_drt, data_drt_new, question=None, answer=None):
+    match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
+    pred_answers = []
+    for info in match_infos:
+        # if info['argx_col'] is None:
+        if qa_type == 'act_ref_igdt':
+            entity_igdt = info['entity']['igdt']
+            hidden_drop = info['hidden'].get('drop', [])
+            hidden_drop = filter_items_by_id(hidden_drop)
+            # todo 没用到shadow？
+            hidden_shadow = info['hidden'].get('shadow', [])
+            hidden_shadow = filter_items_by_id(hidden_shadow)
+            igdt = entity_igdt + hidden_drop
+            if len(igdt) > 0:
+                pred_answer = 'the ' + join_items(igdt)
+                pred_answers.append(pred_answer)
+            else:
+                continue
+        elif qa_type == 'act_ref_place':
+            hidden_habitat = info['hidden'].get('habitat', [])
+            hidden_habitat = filter_items_by_id(hidden_habitat)
+            entity_habitat = info['entity']['habitat']
+            if len(hidden_habitat) > 0:
+                # todo 如果有多个habitat，先取第一个
+                pred_answer = hidden_habitat[0].replace('_', ' ')
+                pred_answers.append(pred_answer)
+            elif len(entity_habitat) > 0:
+                # todo 如果有多个habitat，先取第一个
+                pred_answer = entity_habitat[0]
+                pred_answers.append(pred_answer)
+            else:
+                continue
+        elif qa_type == 'act_ref_tool_or_full_act':
+            hidden_tool = info['hidden'].get('tool', [])
+            hidden_tool = filter_items_by_id(hidden_tool)
+            entity_tool = info['entity']['tool']
+            if len(hidden_tool) > 0:
+                # todo 如果有多个tool，先取第一个
+                tool = hidden_tool[0].replace('_', ' ')
+            elif len(entity_tool) > 0:
+                # todo 如果有多个tool，先取第一个
+                tool = entity_tool[0]
+            else:
+                continue
+            if tool in ['hand', 'hands']:
+                pred_answer = 'by hand'
+            else:
+                pred_answer = 'by using a {}'.format(tool).replace('_', ' ')
+            pred_answers.append(pred_answer)
+        else:
+            raise Exception('unexpected qa_type in kernal_knowledge_answer_function: {}'.format(qa_type))
+
+    return pred_answers
 
 
 if __name__ == '__main__':
