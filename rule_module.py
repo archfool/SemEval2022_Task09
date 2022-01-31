@@ -561,7 +561,7 @@ def rule_for_qa(dataset):
 
 if __name__ == '__main__':
     # 加载数据
-    dataset_name = 'vali'
+    dataset_name = 'test'
     dataset_model_vali, dataset_rule_vali = data_process(dataset_name)
 
     # 通过规则获取答案
