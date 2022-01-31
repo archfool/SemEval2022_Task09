@@ -36,6 +36,102 @@ entity=EVENT和upos=VERB存在一定的共现性。
 """
 
 
+# def f1_metric(row):
+#     predictions = [{'id': 0, 'prediction_text': row['pred_answer']}]
+#     references = [{'id': 0, 'answers': {'text': [row['answer']], 'answer_start': [0]}}]
+#     metric_result = metric.compute(predictions=predictions, references=references)
+#     return metric_result['f1']
+#
+#
+# def tmp_metric(row):
+#     if row['qa_type'] in ['act_first', 'place_before_act', 'count_times', 'count_nums']:
+#         return 1 if str(row['answer']) == str(row['pred_answer']) else 0
+#     else:
+#         return 0
+
+
+# def act_ref_tool_or_full_act_bak220131(qa_type, key_str_q, data_drt, data_drt_new, question=None, answer=None):
+#     # 尝试以qa_type为full_act获取答案
+#     pred_answers = kernal_extract_answer_function(qa_type, key_str_q, data_drt, data_drt_new, question, answer)
+#     if len(pred_answers) > 0:
+#         return pred_answers[0]
+#     # 根据核心文本，匹配和定位操作步骤
+#     matched_drts, q_kws = locate_direction(key_str_q, data_drt_new)
+#     # tools = []
+#     # attributes = []
+#     # 遍历匹配到的所有操作步骤
+#     for seq_id, _ in matched_drts:
+#         # 提取核心动词
+#         key_verb = key_str_q.split(' ')[0]
+#         direction = data_drt[data_drt['seq_id'] == seq_id]
+#         # 定位核心词的可能位置
+#         key_verb_idxs = get_keyword_loc(key_verb, direction)
+#         for key_verb_idx in key_verb_idxs:
+#             # todo 检验keyword是否都在seg里
+#             # 截取关键字段
+#             seg_df, col_name = locate_direction_segment(key_verb_idx, direction)
+#             # 若关键动词没有关联的上下文，则跳过
+#             if col_name is None:
+#                 continue
+#             else:
+#                 # 提取信息
+#                 hiddens = parse_hidden(direction.iloc[key_verb_idx]['hidden'])
+#                 entity_infos = get_segment_entity_info(seg_df)
+#                 argx_infos = get_segment_argx_info(seg_df, col_name)
+#                 # 整理信息
+#                 vs = argx_infos['v']
+#                 # todo patient和drop，shadow的顺序
+#                 # todo 原文字段，使用argx_infos['patient']还是seg_infos['igdt']？
+#                 igdts = argx_infos['patient'] + hiddens.get('drop', []) + hiddens.get('shadow', [])
+#                 tools = entity_infos['tool'] + hiddens.get('tool', [])
+#                 # todo，attribute/instrument有先后顺序，先不管了
+#                 extras = argx_infos['attribute'] + argx_infos['instrument']
+#                 # 判断属于哪个提问模板
+#                 if len(tools) == 0 and len(extras) == 0:
+#                     continue
+#                 elif len(tools) > 0 and len(extras) == 0:
+#                     qa_type = 'act_ref_tool'
+#                 elif len(tools) == 0 and len(extras) > 0:
+#                     qa_type = 'full_act'
+#                 elif len(tools) > 0 and len(extras) > 0:
+#                     keywords = get_keywords([key_str_q], seps=[' and ', ' '], stopwords=q_stopwords,
+#                                             puncts=['.', ',', ';'])
+#                     keywords = [(kw, lm.lemmatize(kw, 'v'), lm.lemmatize(kw, 'n')) for kw in keywords]
+#                     v_and_n_tokens = [token for tokens in vs + igdts for token in tokens.replace('_', ' ').split(' ')]
+#                     if keywords_states_all_in_segment(keywords, v_and_n_tokens):
+#                         qa_type = 'act_ref_tool'
+#                     else:
+#                         qa_type = 'full_act'
+#                 else:
+#                     raise ValueError('whould not in this branch')
+#
+#                 # 使用by using a tool形式展示答案
+#                 if qa_type == 'act_ref_tool':
+#                     # todo 如果有多个tool，先取第一个
+#                     tool = tools[0]
+#                     if tool in ['hand', 'hands']:
+#                         pred_answer = 'by hand'
+#                     else:
+#                         pred_answer = 'by using a {}'.format(tool).replace('_', ' ')
+#                     return pred_answer
+#                 # 使用 v + igdt + extras 拼接答案
+#                 elif qa_type == 'full_act':
+#                     # todo 如果有多个v，先取第一个
+#                     v = vs[0] if len(vs) > 0 else None
+#                     # 将v的第一个词替换为正常时态
+#                     v = ' '.join([lm.lemmatize(x, 'v') if i == 0 else x for i, x in enumerate(v.split(' '))])
+#                     igdt_s = join_items(igdts)
+#                     igdt_s = 'the ' + igdt_s if igdt_s != '' else None
+#                     extras_s = ' '.join(extras)
+#                     pred_answer = ' '.join([x for x in [v, igdt_s, extras_s] if x is not None]).replace('_', ' ')
+#                     return pred_answer
+#                 else:
+#                     raise Exception('qa_type of act_ref_tool_or_full_act is unknow!')
+#
+#     # 什么都没匹配到，返回N/A
+#     return 'N/A'
+
+
 def act_first(question, data_drt_new):
     question = question.lower().replace('(', '\(').replace(')', '\)')
     # tokens_list = [[token for token in tokens.split(' ') if token != ''] for tokens in question.split(' and ')]
@@ -219,136 +315,40 @@ def place_before_act(igdt, act, new_direction_dfs, old_direction_dfs):
     return place
 
 
-def get_result_and_context(target_result, direction_dfs, tmp=None):
+def serch_result_infos(target_result, data_drt, question=None, answer=None):
     target_result_tokens = [[token, lm.lemmatize(token, 'n'), token[:-1] if token.endswith('s') else token] for
                             token in target_result.split(' ')]
+    ret_dic_list = []
     # 遍历所有操作步骤
-    for d_idx, direction in enumerate(direction_dfs):
+    for seq_id, direction in data_drt.groupby('seq_id'):
         # 遍历所有token
         for r_idx, row in direction.iterrows():
-            # 针对包含result信息的token，进行分析
-            if row['hidden'] != '_' and 'result' in parse_hidden(row['hidden']).keys():
-                hiddens = parse_hidden(row['hidden'])
-                results = hiddens['result']
-                # 遍历原文result
-                for result in results:
-                    match_flag = True
-                    result_tokens = [(token, lm.lemmatize(token, 'n'), token[:-1] if token.endswith('s') else token)
-                                     for token in result.split('_')]
-                    # 原文result是否包含目标result
-                    for target_result_token in target_result_tokens:
-                        if not token_match(target_result_token, [t for ts in result_tokens for t in ts]):
-                            match_flag = False
-                            break
-                    # 目标result是否包含原文result
-                    for result_token in result_tokens:
-                        if not token_match(result_token, [t for ts in target_result_tokens for t in ts]):
-                            match_flag = False
-                            break
-                    # 目标result匹配到原文result
-                    if match_flag:
-                        seg_df, col_name = locate_direction_segment(r_idx, direction)
-                        seg_infos = get_segment_entity_info(seg_df, direction.index[r_idx])
-                        return hiddens, seg_infos
-            else:
-                pass
-    return None, None
-
-
-# def f1_metric(row):
-#     predictions = [{'id': 0, 'prediction_text': row['pred_answer']}]
-#     references = [{'id': 0, 'answers': {'text': [row['answer']], 'answer_start': [0]}}]
-#     metric_result = metric.compute(predictions=predictions, references=references)
-#     return metric_result['f1']
-#
-#
-# def tmp_metric(row):
-#     if row['qa_type'] in ['act_first', 'place_before_act', 'count_times', 'count_nums']:
-#         return 1 if str(row['answer']) == str(row['pred_answer']) else 0
-#     else:
-#         return 0
-
-
-# def act_ref_tool_or_full_act_bak220131(qa_type, key_str_q, data_drt, data_drt_new, question=None, answer=None):
-#     # 尝试以qa_type为full_act获取答案
-#     pred_answers = kernal_extract_answer_function(qa_type, key_str_q, data_drt, data_drt_new, question, answer)
-#     if len(pred_answers) > 0:
-#         return pred_answers[0]
-#     # 根据核心文本，匹配和定位操作步骤
-#     matched_drts, q_kws = locate_direction(key_str_q, data_drt_new)
-#     # tools = []
-#     # attributes = []
-#     # 遍历匹配到的所有操作步骤
-#     for seq_id, _ in matched_drts:
-#         # 提取核心动词
-#         key_verb = key_str_q.split(' ')[0]
-#         direction = data_drt[data_drt['seq_id'] == seq_id]
-#         # 定位核心词的可能位置
-#         key_verb_idxs = get_keyword_loc(key_verb, direction)
-#         for key_verb_idx in key_verb_idxs:
-#             # todo 检验keyword是否都在seg里
-#             # 截取关键字段
-#             seg_df, col_name = locate_direction_segment(key_verb_idx, direction)
-#             # 若关键动词没有关联的上下文，则跳过
-#             if col_name is None:
-#                 continue
-#             else:
-#                 # 提取信息
-#                 hiddens = parse_hidden(direction.iloc[key_verb_idx]['hidden'])
-#                 entity_infos = get_segment_entity_info(seg_df)
-#                 argx_infos = get_segment_argx_info(seg_df, col_name)
-#                 # 整理信息
-#                 vs = argx_infos['v']
-#                 # todo patient和drop，shadow的顺序
-#                 # todo 原文字段，使用argx_infos['patient']还是seg_infos['igdt']？
-#                 igdts = argx_infos['patient'] + hiddens.get('drop', []) + hiddens.get('shadow', [])
-#                 tools = entity_infos['tool'] + hiddens.get('tool', [])
-#                 # todo，attribute/instrument有先后顺序，先不管了
-#                 extras = argx_infos['attribute'] + argx_infos['instrument']
-#                 # 判断属于哪个提问模板
-#                 if len(tools) == 0 and len(extras) == 0:
-#                     continue
-#                 elif len(tools) > 0 and len(extras) == 0:
-#                     qa_type = 'act_ref_tool'
-#                 elif len(tools) == 0 and len(extras) > 0:
-#                     qa_type = 'full_act'
-#                 elif len(tools) > 0 and len(extras) > 0:
-#                     keywords = get_keywords([key_str_q], seps=[' and ', ' '], stopwords=q_stopwords,
-#                                             puncts=['.', ',', ';'])
-#                     keywords = [(kw, lm.lemmatize(kw, 'v'), lm.lemmatize(kw, 'n')) for kw in keywords]
-#                     v_and_n_tokens = [token for tokens in vs + igdts for token in tokens.replace('_', ' ').split(' ')]
-#                     if keywords_states_all_in_segment(keywords, v_and_n_tokens):
-#                         qa_type = 'act_ref_tool'
-#                     else:
-#                         qa_type = 'full_act'
-#                 else:
-#                     raise ValueError('whould not in this branch')
-#
-#                 # 使用by using a tool形式展示答案
-#                 if qa_type == 'act_ref_tool':
-#                     # todo 如果有多个tool，先取第一个
-#                     tool = tools[0]
-#                     if tool in ['hand', 'hands']:
-#                         pred_answer = 'by hand'
-#                     else:
-#                         pred_answer = 'by using a {}'.format(tool).replace('_', ' ')
-#                     return pred_answer
-#                 # 使用 v + igdt + extras 拼接答案
-#                 elif qa_type == 'full_act':
-#                     # todo 如果有多个v，先取第一个
-#                     v = vs[0] if len(vs) > 0 else None
-#                     # 将v的第一个词替换为正常时态
-#                     v = ' '.join([lm.lemmatize(x, 'v') if i == 0 else x for i, x in enumerate(v.split(' '))])
-#                     igdt_s = join_items(igdts)
-#                     igdt_s = 'the ' + igdt_s if igdt_s != '' else None
-#                     extras_s = ' '.join(extras)
-#                     pred_answer = ' '.join([x for x in [v, igdt_s, extras_s] if x is not None]).replace('_', ' ')
-#                     return pred_answer
-#                 else:
-#                     raise Exception('qa_type of act_ref_tool_or_full_act is unknow!')
-#
-#     # 什么都没匹配到，返回N/A
-#     return 'N/A'
+            results = parse_hidden(row['hidden']).get('result', [])
+            # 遍历检索到的result
+            for result in results:
+                match_flag = True
+                result_tokens = [(token, lm.lemmatize(token, 'n'), token[:-1] if token.endswith('s') else token)
+                                 for token in result.split('_')]
+                # 原文result是否包含目标result
+                for target_result_token in target_result_tokens:
+                    if not token_match(target_result_token, [t for ts in result_tokens for t in ts]):
+                        match_flag = False
+                        break
+                # 目标result是否包含原文result
+                for result_token in result_tokens:
+                    if not token_match(result_token, [t for ts in target_result_tokens for t in ts]):
+                        match_flag = False
+                        break
+                # 目标result匹配到原文result
+                if match_flag:
+                    segment, col_name = locate_direction_segment(r_idx, direction)
+                    item_infos = collect_segment_items(row, segment, col_name, direction.index[r_idx])
+                    ret_dic = {'row': row, 'seg': segment, 'drt': direction, 'argx_col': col_name}
+                    ret_dic.update(item_infos)
+                    ret_dic_list.append(ret_dic)
+                else:
+                    continue
+    return ret_dic_list
 
 
 def rule_for_qa(dataset):
@@ -365,7 +365,7 @@ def rule_for_qa(dataset):
         new_direction_dfs = recipe['new_direction_dfs']
         data_drt = recipe['data_drt']
         data_drt_new = recipe['data_drt_new']
-        igdt = recipe['data_igdt']
+        igdts = recipe['data_igdt']
         directions = pd.concat(direction_dfs)
 
         if qa_type in ['act_ref_igdt', 'act_ref_place']:
@@ -406,8 +406,8 @@ def rule_for_qa(dataset):
             ret = act_first(key_str_q, data_drt_new)
             return ret
         elif 'place_before_act' == qa_type:
-            igdt, act = key_str_q.split('|')
-            place = place_before_act(igdt, act, new_direction_dfs, direction_dfs)
+            igdts, act = key_str_q.split('|')
+            place = place_before_act(igdts, act, new_direction_dfs, direction_dfs)
             return 'N/A' if place is None else place
         elif 'count_times' == qa_type:
             collected_hidden = collect_hidden(directions['hidden'], key_str_q)
@@ -422,45 +422,102 @@ def rule_for_qa(dataset):
             num = 'N/A' if num == 0 else str(num)
             return num
         elif 'get_result' == qa_type:
-            hiddens, seg_infos = get_result_and_context(key_str_q, direction_dfs, answer)
-            if hiddens is not None:
+            serch_infos = serch_result_infos(key_str_q, data_drt, question, answer)
+            pred_answers = []
+            for info in serch_infos:
                 # 动作字符串
-                act_string = ' '.join([present_tense_map[act] for act in seg_infos['act']])
-                # act_string = conjugate(verb=act, tense=PARTICIPLE, number=SG)
-                act_string = 'by ' + act_string if act_string != '' else None
+                entity_act = [present_tense_map[act] for act in info['entity']['act']]
+                act_string = 'by ' + ' '.join(entity_act) if len(entity_act) > 0 else None
                 # 食材字符串
-                # todo 原文字段，使用argx_infos['patient']还是seg_infos['igdt']？
-                igdts = seg_infos['igdt'] + hiddens.get('drop', []) + hiddens.get('shadow', [])
-                igdt_string = join_items(igdts)
-                igdt_string = 'the ' + igdt_string if igdt_string != '' else None
-                # 容器字符串
-                hibatit = seg_infos['habitat'] + [hiddens['habitat'][0]] if hiddens.__contains__('habitat') else []
-                hibatit_string = join_items(hibatit)
-                hibatit_string = 'in the ' + hibatit_string if hibatit_string != '' else None
+                # todo part1不是数字的，要剔除
+                entity_igdt = info['entity']['igdt']
+                hidden_drop = info['hidden'].get('drop', [])
+                hidden_drop = filter_items_by_id(hidden_drop)
+                igdts = entity_igdt + hidden_drop
+                igdt_string = 'the ' + join_items(igdts) if len(igdts) > 0 else None
+                # 容器字符串:
+                entity_habitat = info['entity']['habitat'] # 等于1的
+                hidden_habitat = info['hidden'].get('habitat', [])
+                hidden_habitat = filter_items_by_id(hidden_habitat)
+                habitats = entity_habitat + hidden_habitat
+                # todo 介词不全是in
+                habitat_string = 'in the ' + join_items(habitats) if len(habitats) > 0 else None
                 # 工具字符串
-                tools = seg_infos['tool'] + [hiddens['tool'][0]] if hiddens.__contains__('tool') else []
-                tool_string = join_items(tools)
-                tool_string = 'with the ' + tool_string if tool_string != '' else None
+                entity_tool = info['entity']['tool']
+                hidden_tool = info['hidden'].get('tool', [])
+                hidden_tool = filter_items_by_id(hidden_tool)
+                tools = entity_tool + hidden_tool
+                tool_string = 'with the ' + join_items(tools) if len(tools) > 0 else None
                 # 汇总各个字符串
-                ret_string = ' '.join(
-                    [s for s in [act_string, igdt_string, hibatit_string, tool_string] if s is not None])
-                return ret_string.replace('_', ' ')
+                sub_strings = [s for s in [act_string, igdt_string, habitat_string, tool_string] if s is not None]
+                if len(sub_strings) > 0:
+                    pred_answer = ' '.join(sub_strings)
+                    pred_answers.append(pred_answer)
+                else:
+                    continue
+            if len(pred_answers) != 0:
+                # todo 暂时只取第一个答案
+                return pred_answers[0]
             else:
                 return 'N/A'
+            # for info in serch_infos:
+            #     hiddens = info['hidden']
+            #     seg_infos = info['entity']
+            #     if hiddens is not None:
+            #         # 动作字符串
+            #         act_string = ' '.join([present_tense_map[act] for act in seg_infos['act']])
+            #         # act_string = conjugate(verb=act, tense=PARTICIPLE, number=SG)
+            #         act_string = 'by ' + act_string if act_string != '' else None
+            #         # 食材字符串
+            #         # todo 原文字段，使用argx_infos['patient']还是seg_infos['igdt']？
+            #         igdts = seg_infos['igdt'] + hiddens.get('drop', []) + hiddens.get('shadow', [])
+            #         igdt_string = join_items(igdts)
+            #         igdt_string = 'the ' + igdt_string if igdt_string != '' else None
+            #         # 容器字符串
+            #         hibatit = seg_infos['habitat'] + [hiddens['habitat'][0]] if hiddens.__contains__('habitat') else []
+            #         hibatit_string = join_items(hibatit)
+            #         hibatit_string = 'in the ' + hibatit_string if hibatit_string != '' else None
+            #         # 工具字符串
+            #         tools = seg_infos['tool'] + [hiddens['tool'][0]] if hiddens.__contains__('tool') else []
+            #         tool_string = join_items(tools)
+            #         tool_string = 'with the ' + tool_string if tool_string != '' else None
+            #         # 汇总各个字符串
+            #         ret_string = ' '.join(
+            #             [s for s in [act_string, igdt_string, hibatit_string, tool_string] if s is not None])
+            #         return ret_string.replace('_', ' ')
+            #     else:
+            #         return 'N/A'
         elif 'result_component' == qa_type:
-            hiddens, seg_infos = get_result_and_context(key_str_q, direction_dfs, answer)
-            if hiddens is not None:
-                # todo 原文字段，使用argx_infos['patient']还是seg_infos['igdt']？
-                igdts = seg_infos['igdt'] + hiddens.get('drop', []) + hiddens.get('shadow', [])
-                igdt_string = join_items(igdts)
-                igdt_string = 'the ' + igdt_string if igdt_string != '' else None
-                ret_string = igdt_string if igdt_string is not None else 'N/A'
-                return ret_string.replace('_', ' ')
+            serch_infos = serch_result_infos(key_str_q, data_drt, question, answer)
+            pred_answers = []
+            for info in serch_infos:
+                entity_igdt = info['entity']['igdt']
+                hidden_drop = info['hidden'].get('drop', [])
+                hidden_drop = filter_items_by_id(hidden_drop)
+                igdts = entity_igdt + hidden_drop
+                if len(igdts) > 0:
+                    pred_answer = 'the ' + join_items(igdts)
+                    pred_answers.append(pred_answer)
+                else:
+                    continue
+            if len(pred_answers) != 0:
+                # todo 暂时只取第一个答案
+                return pred_answers[0]
             else:
                 return 'N/A'
+            # hiddens = info['hidden']
+            # seg_infos = info['entity']
+            # if hiddens is not None:
+            #     # todo 原文字段，使用argx_infos['patient']还是seg_infos['igdt']？
+            #     igdts = seg_infos['igdt'] + hiddens.get('drop', []) + hiddens.get('shadow', [])
+            #     igdt_string = join_items(igdts)
+            #     igdt_string = 'the ' + igdt_string if igdt_string != '' else None
+            #     ret_string = igdt_string if igdt_string is not None else 'N/A'
+            #     return ret_string.replace('_', ' ')
+            # else:
+            #     return 'N/A'
         else:
-            return '[RESERVE]'
-            # raise ValueError('invalid rule qa_type')
+            raise Exception('invalid rule qa_type: {}'.format(qa_type))
 
     qa_df[['recipe_id', 'question_id']] = qa_df.apply(parse_id, axis=1, result_type="expand")
 

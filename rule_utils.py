@@ -156,8 +156,9 @@ def get_segment_argx_info(direction_segment, col_name):
         (direction_segment[col_name] == 'B-Instrument') | (direction_segment[col_name] == 'I-Instrument')]
     segs['patient'] = direction_segment[
         (direction_segment[col_name] == 'B-Patient') | (direction_segment[col_name] == 'I-Patient')]
+    segs['location'] = direction_segment[
+        (direction_segment[col_name] == 'B-Location') | (direction_segment[col_name] == 'I-Location')]
 
-    # 添加attribute信息
     seg_infos = {key: [] for key in segs.keys()}
     for type, seg in segs.items():
         info = []
@@ -197,7 +198,6 @@ def locate_direction(key_string, data_drt):
         match_flag = keywords_states_all_in_segment(q_kws, direction_tokens + direction_tokens_lemma)
         if match_flag:
             matched_drts.append([seq_id, direction])
-            continue
 
     return matched_drts, q_kws
 
@@ -255,8 +255,8 @@ def filter_items_by_id(items: list):
 
 
 # 提取segment内的所有item信息
-def collect_segment_items(key_verb_row, segment, argx_col_name):
-    entity_items = get_segment_entity_info(segment, argx_col_name=argx_col_name)
+def collect_segment_items(key_verb_row, segment, argx_col_name, key_verb_idx=None):
+    entity_items = get_segment_entity_info(segment, anchor_verb_idx=key_verb_idx, argx_col_name=argx_col_name)
     hidden_items = parse_hidden(key_verb_row['hidden'], reserve_idx=True)
     coref_items = parse_coref(key_verb_row['coref'], reserve_idx=True)
     argx_items = {} if argx_col_name is None else get_segment_argx_info(segment, argx_col_name)
@@ -418,9 +418,6 @@ def kernal_knowledge_answer_function(qa_type, key_str_q, data_drt, data_drt_new,
             entity_igdt = info['entity']['igdt']
             hidden_drop = info['hidden'].get('drop', [])
             hidden_drop = filter_items_by_id(hidden_drop)
-            # todo 没用到shadow？
-            hidden_shadow = info['hidden'].get('shadow', [])
-            hidden_shadow = filter_items_by_id(hidden_shadow)
             igdt = entity_igdt + hidden_drop
             if len(igdt) > 0:
                 pred_answer = 'the ' + join_items(igdt)

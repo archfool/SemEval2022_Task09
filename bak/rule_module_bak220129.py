@@ -463,7 +463,7 @@ def rule_for_qa(data_qa, data_drt, data_drt_new, data_igdt):
             else:
                 return 'N/A'
         # elif 'result_component' == qa_type:
-        #     hiddens, seg_infos = get_result_and_context(key_context, direction_dfs, answer)
+        #     hiddens, seg_infos = serch_result_infos(key_context, direction_dfs, answer)
         #     if hiddens is not None:
         #         igdts = seg_infos['igdt'] + hiddens.get('Drop', []) + hiddens.get('Shadow', [])
         #         igdt_string = join_items(igdts)
