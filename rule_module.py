@@ -21,8 +21,8 @@ from init_config import src_dir, data_dir
 from data_process import data_process, token_match, qa_type_rule, type_q_regex_pattern_dict, get_keywords, q_stopwords
 from rule_utils import parse_id, parse_hidden, get_segment_entity_info, get_segment_argx_info, \
     token_states_all_in_sent, locate_direction, locate_direction_segment, get_keyword_loc, join_items, collect_hidden, \
-    collect_coref, get_conditional_segment, collect_annotation_items, collect_segment_items, kernal_location_function, \
-    filter_items_by_id
+    collect_coref, collect_annotation_items, collect_segment_items, kernal_location_function, \
+    filter_items_by_id, kernal_extract_answer_function, kernal_knowledge_answer_function
 
 with open(os.path.join(src_dir, 'present_tense.json'), 'r', encoding='utf-8') as f:
     present_tense_map = json.load(f)
@@ -268,7 +268,8 @@ def get_result_and_context(target_result, direction_dfs, tmp=None):
 #         return 0
 
 
-def act_ref_tool_or_full_act(key_str_q, data_drt, data_drt_new, question=None, answer=None):
+def act_ref_tool_or_full_act(qa_type, key_str_q, data_drt, data_drt_new, question=None, answer=None):
+    pred_answers = kernal_extract_answer_function(qa_type, key_str_q, data_drt, data_drt_new, question, answer)
     # 根据核心文本，匹配和定位操作步骤
     matched_drts, q_kws = locate_direction(key_str_q, data_drt_new)
     # tools = []
@@ -342,37 +343,7 @@ def act_ref_tool_or_full_act(key_str_q, data_drt, data_drt_new, question=None, a
                 else:
                     raise Exception('qa_type of act_ref_tool_or_full_act is unknow!')
 
-                # keywords = get_keywords([key_str_q], seps=[' and ', ' '], stopwords=q_stopwords,
-                #                         puncts=['.', ',', ';'])
-                # keywords = [(kw, lm.lemmatize(kw, 'v'), lm.lemmatize(kw, 'n')) for kw in keywords]
-                # old_seg_match = token_states_all_in_sent(keywords, direction['form'].tolist() + direction[
-                #     'lemma'].tolist())
-                # 以attitude为关键词的答案，问题的元素都有出现在原始步骤中。使用v+Patient+Attitude拼接答案
-                # if len(attributes) > 0 and len(tools) == 0:
-                # vs = argx_infos['v']
-                # patients = argx_infos['patient']
-                # # 如果有多个v/patient/attributes，先取第一个
-                # v = vs[0] if len(vs) > 0 else None
-                # patient = patients[0] if len(patients) > 0 else None
-                # attribute = attributes[0]
-                # pred_answer = ' '.join([x for x in [v, igdt_string, attribute] if x is not None]).replace('_', ' ')
-                # return pred_answer
-                # 以tool为关键词的答案，问题的元素大概率不全出现在原始步骤中。使用by using a tool形式展示答案。tool只有动宾？
-                # elif len(tools) > 0 and len(attributes) == 0:
-                # #  如果有多个tool，先取第一个
-                # tool = tools[0]
-                # if tool in ['hand', 'hands']:
-                #     pred_answer = 'by hand'
-                # else:
-                #     pred_answer = 'by using a {}'.format(tool).replace('_', ' ')
-                # return pred_answer
-                # attribute和tool都没匹配到
-                # elif len(attributes) == 0 and len(tools) == 0:
-                #     continue
-                # # attribute有值，但是问题的元素不全出现在原始步骤中
-                # else:
-                #     print("(not old_seg_match) and (len(attribute) > 0)")
-                #     continue
+
     # 什么都没匹配到，返回N/A
     return 'N/A'
 
@@ -417,7 +388,7 @@ def rule_for_qa(dataset):
             ret = act_first(key_str_q, data_drt_new)
             return ret
         elif 'act_ref_tool_or_full_act' == qa_type:
-            pred_answer = act_ref_tool_or_full_act(key_str_q, data_drt, data_drt_new, question, answer)
+            pred_answer = act_ref_tool_or_full_act(qa_type, key_str_q, data_drt, data_drt_new, question, answer)
             return pred_answer
         elif 'act_ref_place' == qa_type:
             match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
@@ -442,27 +413,6 @@ def rule_for_qa(dataset):
             igdt, act = key_str_q.split('|')
             place = place_before_act(igdt, act, new_direction_dfs, direction_dfs)
             return 'N/A' if place is None else place
-        elif 'act_igdt_ref_place' == qa_type:
-            match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
-            pred_answers = []
-            for info in match_infos:
-                argx_base_types = ['Destination', 'Location', 'Co-Patient']
-                argx_types = ['B-' + argx_base_type for argx_base_type in argx_base_types] \
-                             + ['I-' + argx_base_type for argx_base_type in argx_base_types]
-                if info['argx_col'] is None:
-                    continue
-                else:
-                    seg = get_conditional_segment(old_segment=info['seg'], col_name=info['argx_col'],
-                                                  col_values=argx_types)
-                    if len(seg) > 0:
-                        pred_answer = ' '.join(seg['form'].tolist())
-                        pred_answers.append(pred_answer)
-                    else:
-                        continue
-            if len(pred_answers) != 0:
-                return pred_answers[0]
-            else:
-                return 'N/A'
         elif 'count_times' == qa_type:
             collected_hidden = collect_hidden(directions['hidden'], key_str_q)
             collected_coref = collect_coref(directions['coref'], key_str_q)
@@ -512,24 +462,11 @@ def rule_for_qa(dataset):
                 return ret_string.replace('_', ' ')
             else:
                 return 'N/A'
-        elif 'act_duration' == qa_type:
-            match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
-            pred_answers = []
-            for info in match_infos:
-                argx_base_types = ['Time']
-                argx_types = ['B-' + argx_base_type for argx_base_type in argx_base_types] \
-                             + ['I-' + argx_base_type for argx_base_type in argx_base_types]
-                if info['argx_col'] is None:
-                    continue
-                else:
-                    seg = get_conditional_segment(old_segment=info['seg'], col_name=info['argx_col'],
-                                                  col_values=argx_types)
-                    if len(seg) > 0:
-                        pred_answer = ' '.join(seg['form'].tolist())
-                        pred_answers.append(pred_answer)
-                    else:
-                        continue
+        elif qa_type in ['act_igdt_ref_place', 'act_duration', 'act_extent', 'act_reason', 'act_from_where',
+                         'act_couple_igdt', 'igdt_amount']:
+            pred_answers = kernal_extract_answer_function(qa_type, key_str_q, data_drt, data_drt_new, question, answer)
             if len(pred_answers) != 0:
+                # todo 暂时只取第一个答案
                 return pred_answers[0]
             else:
                 return 'N/A'
@@ -538,19 +475,19 @@ def rule_for_qa(dataset):
             # raise ValueError('invalid rule qa_type')
 
     qa_df[['recipe_id', 'question_id']] = qa_df.apply(parse_id, axis=1, result_type="expand")
-    if True:
-        qa_df['pred_answer'] = qa_df.apply(get_answer_by_rule, axis=1)
-    else:
-        qa_df['pred_answer'] = None
-        for idx in range(len(qa_df)):
-            qa_df.iloc[idx]['pred_answer'] = get_answer_by_rule(qa_df.iloc[idx])
+
+    qa_df['pred_answer'] = qa_df.apply(get_answer_by_rule, axis=1)
+    # qa_df['pred_answer'] = None
+    # for idx in range(len(qa_df)):
+    #     qa_df.iloc[idx]['pred_answer'] = get_answer_by_rule(qa_df.iloc[idx])
 
     return qa_df
 
 
 if __name__ == '__main__':
     # 加载数据
-    dataset_model_vali, dataset_rule_vali = data_process('vali')
+    dataset_name = 'vali'
+    dataset_model_vali, dataset_rule_vali = data_process(dataset_name)
 
     # 通过规则获取答案
     rule_result = rule_for_qa(dataset_rule_vali)
@@ -561,7 +498,7 @@ if __name__ == '__main__':
     # rule_result['tmp_score'] = rule_result.apply(tmp_metric, axis=1)
 
     # print(rule_result['qa_type'].value_counts(normalize=True))
-    print('========== score: {}=========='.format(round(rule_result['score'].mean(), 2)))
+    print('========== score: {}=========='.format(round(rule_result['score'].mean(), 4)))
     for qa_type in rule_result['qa_type'].value_counts().index.to_list():
         print('=========={}=========='.format(qa_type))
         print('qa_type per: {}%'.format(
@@ -573,5 +510,14 @@ if __name__ == '__main__':
     # for qa_type in ['get_result', 'result_component']:
     #     print('=========={}=========='.format(qa_type))
     #     print(rule_result[rule_result['qa_type'] == qa_type]['score'].mean())
+
+    if dataset_name == 'test':
+        rule_result['pred_answer'] = rule_result['pred_answer'].apply(lambda x: None if (x == 'N/A' or x == '') else x)
+        from task9_main import convert_pred_result_to_submission_format
+
+        r2vq_pred_result = convert_pred_result_to_submission_format(rule_result)
+        submit_filename = 'r2vq_pred.json'
+        with open(os.path.join(src_dir, submit_filename), 'w', encoding='utf-8') as f:
+            json.dump(r2vq_pred_result, f)
 
     print('END')

@@ -214,20 +214,6 @@ def locate_direction_segment(idx, direction):
     return seg_df, None
 
 
-# 根据相应列的取值，截取操作步骤的片段 todo 待验证
-def get_conditional_segment(old_segment, col_name, col_values, joint_rule='or'):
-    flag = None
-    for col_value in col_values:
-        if joint_rule == 'or':
-            flag = old_segment[col_name] == col_value if flag is None else flag | (old_segment[col_name] == col_value)
-        elif joint_rule == 'and':
-            flag = old_segment[col_name] == col_value if flag is None else flag & (old_segment[col_name] == col_value)
-        else:
-            raise Exception('Unknow joint_rule name!')
-    new_segment = old_segment[flag]
-    return new_segment
-
-
 # 在一句操作步骤中，定位到关键词的位置
 def get_keyword_loc(keyword, direction):
     keyword = [keyword, lm.lemmatize(keyword, 'v')]
@@ -315,6 +301,69 @@ def kernal_location_function(key_str_q, data_drt, data_drt_new):
             else:
                 continue
     return ret_dic_list
+
+
+# 根据相应列的取值，截取操作步骤的片段
+def get_conditional_segment(old_segment, col_name, col_values, qa_type, joint_rule='or'):
+    flag = None
+    for col_value in col_values:
+        if joint_rule == 'or':
+            flag = old_segment[col_name] == col_value if flag is None else flag | (old_segment[col_name] == col_value)
+        elif joint_rule == 'and':
+            flag = old_segment[col_name] == col_value if flag is None else flag & (old_segment[col_name] == col_value)
+        else:
+            raise Exception('Unknow joint_rule name!')
+    if flag is None:
+        if qa_type == 'act_ref_tool_or_full_act':
+            new_segment = []
+        else:
+            print(qa_type)
+            print(old_segment)
+            raise Exception('get_conditional_segment return None!')
+    else:
+        new_segment = old_segment[flag]
+    return new_segment
+
+
+# 从原文中直接抽取答案的方法
+def kernal_extract_answer_function(qa_type, key_str_q, data_drt, data_drt_new, question=None, answer=None):
+    argx_tpye_map = {
+        'act_ref_tool_or_full_act': [],
+        'act_igdt_ref_place': ['Destination', 'Location', 'Co-Patient'],
+        'act_duration': ['Time'],
+        'act_extent': ['Result'],
+        'act_reason': ['Purpose', 'Cause'],
+        'act_from_where': ['Source'],
+        'act_couple_igdt': ['Co-Patient'],  # todo 是不是和act_igdt_ref_place一样？
+        'igdt_amount': ['Extent'],
+    }
+
+    # todo 测试用
+    if qa_type != 'act_ref_tool_or_full_act':
+        return []
+
+    match_infos = kernal_location_function(key_str_q, data_drt, data_drt_new)
+    pred_answers = []
+    for info in match_infos:
+        argx_base_types = argx_tpye_map[qa_type]
+        argx_types = ['B-' + argx_base_type for argx_base_type in argx_base_types] \
+                     + ['I-' + argx_base_type for argx_base_type in argx_base_types]
+        if info['argx_col'] is None:
+            continue
+        else:
+            seg = get_conditional_segment(old_segment=info['seg'], col_name=info['argx_col'], qa_type=qa_type,
+                                          col_values=argx_types)
+            if len(seg) > 0:
+                pred_answer = ' '.join(seg['form'].tolist())
+                pred_answers.append(pred_answer)
+            else:
+                continue
+    return pred_answers
+
+
+# 从标注知识中抽取答案的方法
+def kernal_knowledge_answer_function(key_str_q, data_drt, data_drt_new):
+    return None
 
 
 if __name__ == '__main__':
