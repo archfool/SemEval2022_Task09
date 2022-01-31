@@ -207,11 +207,26 @@ def locate_direction_segment(idx, direction):
     # 若关键动词，在argX列有标识，能够提取出上下文，则返回相关上下文
     for col_name in ['arg{}'.format(str(i)) for i in range(1, 11)]:
         if direction.iloc[idx][col_name] != '_' and 'V' == direction.iloc[idx][col_name].split('-')[1]:
-            seg_df = direction[direction[col_name] != '_']
-            return seg_df, col_name
+            segment = direction[direction[col_name] != '_']
+            return segment, col_name
     # 若关键动词，在argX列没有标识，不能够提取出上下文，则返回关键动词的当前行
-    seg_df = direction[idx:idx + 1]
-    return seg_df, None
+    segment = direction[idx:idx + 1]
+    return segment, None
+
+
+# 截取关键动词的关联上下文（为qa_type=place_before_act个性化定制）
+def locate_direction_segment_plus(idx, row, reverse_data_drt):
+    # 若关键动词，在argX列有标识，能够提取出上下文，则返回相关上下文
+    for argx_col in ['arg{}'.format(str(i)) for i in range(1, 11)]:
+        if row[argx_col] == 'B-V':
+            segment = reverse_data_drt[
+                (reverse_data_drt[argx_col] != '_') & (reverse_data_drt['seq_id'] == row['seq_id'])]
+            return segment[::-1], argx_col
+    # 若关键动词，在argX列没有标识，不能够提取出上下文，则返回关键动词的当前行
+    if row['hidden'] != '_':
+        segment = reverse_data_drt[idx:idx + 1]
+        return segment, None
+    return None, None
 
 
 # 在一句操作步骤中，定位到关键词的位置
@@ -285,7 +300,7 @@ def kernal_location_function(key_str_q, data_drt, data_drt_new):
         for key_verb_idx in key_verb_idxs:
             # 截取核心动词的关联上下文
             segment, col_name = locate_direction_segment(key_verb_idx, direction)
-            # todo (done)检验keyword是否都在seg里，copy to another
+            # 检验keyword是否都在seg里
             items = collect_annotation_items(segment)
             seg_tokens = segment['form'].tolist() + segment['lemma'].tolist()
             match_flag = keywords_states_all_in_segment(q_kws, [t for ts in items for t in ts] + seg_tokens)

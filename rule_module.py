@@ -21,9 +21,9 @@ from init_config import src_dir, data_dir
 from data_process import data_process, token_match, qa_type_rule, type_q_regex_pattern_dict, get_keywords, q_stopwords
 from rule_utils import parse_id, parse_hidden, get_segment_entity_info, get_segment_argx_info, \
     keywords_states_all_in_segment, locate_direction, locate_direction_segment, get_keyword_loc, join_items, \
-    collect_hidden, \
-    collect_coref, get_conditional_segment, collect_annotation_items, collect_segment_items, kernal_location_function, \
-    filter_items_by_id, kernal_extract_answer_function, kernal_knowledge_answer_function
+    collect_hidden, collect_coref, get_conditional_segment, collect_annotation_items, collect_segment_items, \
+    kernal_location_function, filter_items_by_id, kernal_extract_answer_function, kernal_knowledge_answer_function, \
+    locate_direction_segment_plus
 
 with open(os.path.join(src_dir, 'present_tense.json'), 'r', encoding='utf-8') as f:
     present_tense_map = json.load(f)
@@ -50,147 +50,89 @@ entity=EVENT和upos=VERB存在一定的共现性。
 #         return 0
 
 
-# def act_ref_tool_or_full_act_bak220131(qa_type, key_str_q, data_drt, data_drt_new, question=None, answer=None):
-#     # 尝试以qa_type为full_act获取答案
-#     pred_answers = kernal_extract_answer_function(qa_type, key_str_q, data_drt, data_drt_new, question, answer)
-#     if len(pred_answers) > 0:
-#         return pred_answers[0]
-#     # 根据核心文本，匹配和定位操作步骤
-#     matched_drts, q_kws = locate_direction(key_str_q, data_drt_new)
-#     # tools = []
-#     # attributes = []
-#     # 遍历匹配到的所有操作步骤
-#     for seq_id, _ in matched_drts:
-#         # 提取核心动词
-#         key_verb = key_str_q.split(' ')[0]
-#         direction = data_drt[data_drt['seq_id'] == seq_id]
-#         # 定位核心词的可能位置
-#         key_verb_idxs = get_keyword_loc(key_verb, direction)
-#         for key_verb_idx in key_verb_idxs:
-#             # todo 检验keyword是否都在seg里
-#             # 截取关键字段
-#             seg_df, col_name = locate_direction_segment(key_verb_idx, direction)
-#             # 若关键动词没有关联的上下文，则跳过
-#             if col_name is None:
-#                 continue
-#             else:
-#                 # 提取信息
-#                 hiddens = parse_hidden(direction.iloc[key_verb_idx]['hidden'])
-#                 entity_infos = get_segment_entity_info(seg_df)
-#                 argx_infos = get_segment_argx_info(seg_df, col_name)
-#                 # 整理信息
-#                 vs = argx_infos['v']
-#                 # todo patient和drop，shadow的顺序
-#                 # todo 原文字段，使用argx_infos['patient']还是seg_infos['igdt']？
-#                 igdts = argx_infos['patient'] + hiddens.get('drop', []) + hiddens.get('shadow', [])
-#                 tools = entity_infos['tool'] + hiddens.get('tool', [])
-#                 # todo，attribute/instrument有先后顺序，先不管了
-#                 extras = argx_infos['attribute'] + argx_infos['instrument']
-#                 # 判断属于哪个提问模板
-#                 if len(tools) == 0 and len(extras) == 0:
-#                     continue
-#                 elif len(tools) > 0 and len(extras) == 0:
-#                     qa_type = 'act_ref_tool'
-#                 elif len(tools) == 0 and len(extras) > 0:
-#                     qa_type = 'full_act'
-#                 elif len(tools) > 0 and len(extras) > 0:
-#                     keywords = get_keywords([key_str_q], seps=[' and ', ' '], stopwords=q_stopwords,
-#                                             puncts=['.', ',', ';'])
-#                     keywords = [(kw, lm.lemmatize(kw, 'v'), lm.lemmatize(kw, 'n')) for kw in keywords]
-#                     v_and_n_tokens = [token for tokens in vs + igdts for token in tokens.replace('_', ' ').split(' ')]
-#                     if keywords_states_all_in_segment(keywords, v_and_n_tokens):
-#                         qa_type = 'act_ref_tool'
-#                     else:
-#                         qa_type = 'full_act'
-#                 else:
-#                     raise ValueError('whould not in this branch')
-#
-#                 # 使用by using a tool形式展示答案
-#                 if qa_type == 'act_ref_tool':
-#                     # todo 如果有多个tool，先取第一个
-#                     tool = tools[0]
-#                     if tool in ['hand', 'hands']:
-#                         pred_answer = 'by hand'
-#                     else:
-#                         pred_answer = 'by using a {}'.format(tool).replace('_', ' ')
-#                     return pred_answer
-#                 # 使用 v + igdt + extras 拼接答案
-#                 elif qa_type == 'full_act':
-#                     # todo 如果有多个v，先取第一个
-#                     v = vs[0] if len(vs) > 0 else None
-#                     # 将v的第一个词替换为正常时态
-#                     v = ' '.join([lm.lemmatize(x, 'v') if i == 0 else x for i, x in enumerate(v.split(' '))])
-#                     igdt_s = join_items(igdts)
-#                     igdt_s = 'the ' + igdt_s if igdt_s != '' else None
-#                     extras_s = ' '.join(extras)
-#                     pred_answer = ' '.join([x for x in [v, igdt_s, extras_s] if x is not None]).replace('_', ' ')
-#                     return pred_answer
-#                 else:
-#                     raise Exception('qa_type of act_ref_tool_or_full_act is unknow!')
-#
-#     # 什么都没匹配到，返回N/A
-#     return 'N/A'
+def act_ref_tool_or_full_act_bak220131(qa_type, key_str_q, data_drt, data_drt_new, question=None, answer=None):
+    # 尝试以qa_type为full_act获取答案
+    pred_answers = kernal_extract_answer_function(qa_type, key_str_q, data_drt, data_drt_new, question, answer)
+    if len(pred_answers) > 0:
+        return pred_answers[0]
+    # 根据核心文本，匹配和定位操作步骤
+    matched_drts, q_kws = locate_direction(key_str_q, data_drt_new)
+    # tools = []
+    # attributes = []
+    # 遍历匹配到的所有操作步骤
+    for seq_id, _ in matched_drts:
+        # 提取核心动词
+        key_verb = key_str_q.split(' ')[0]
+        direction = data_drt[data_drt['seq_id'] == seq_id]
+        # 定位核心词的可能位置
+        key_verb_idxs = get_keyword_loc(key_verb, direction)
+        for key_verb_idx in key_verb_idxs:
+            # todo 检验keyword是否都在seg里
+            # 截取关键字段
+            seg_df, col_name = locate_direction_segment(key_verb_idx, direction)
+            # 若关键动词没有关联的上下文，则跳过
+            if col_name is None:
+                continue
+            else:
+                # 提取信息
+                hiddens = parse_hidden(direction.iloc[key_verb_idx]['hidden'])
+                entity_infos = get_segment_entity_info(seg_df)
+                argx_infos = get_segment_argx_info(seg_df, col_name)
+                # 整理信息
+                vs = argx_infos['v']
+                # todo patient和drop，shadow的顺序
+                # todo 原文字段，使用argx_infos['patient']还是seg_infos['igdt']？
+                igdts = argx_infos['patient'] + hiddens.get('drop', []) + hiddens.get('shadow', [])
+                tools = entity_infos['tool'] + hiddens.get('tool', [])
+                # todo，attribute/instrument有先后顺序，先不管了
+                extras = argx_infos['attribute'] + argx_infos['instrument']
+                # 判断属于哪个提问模板
+                if len(tools) == 0 and len(extras) == 0:
+                    continue
+                elif len(tools) > 0 and len(extras) == 0:
+                    qa_type = 'act_ref_tool'
+                elif len(tools) == 0 and len(extras) > 0:
+                    qa_type = 'full_act'
+                elif len(tools) > 0 and len(extras) > 0:
+                    keywords = get_keywords([key_str_q], seps=[' and ', ' '], stopwords=q_stopwords,
+                                            puncts=['.', ',', ';'])
+                    keywords = [(kw, lm.lemmatize(kw, 'v'), lm.lemmatize(kw, 'n')) for kw in keywords]
+                    v_and_n_tokens = [token for tokens in vs + igdts for token in tokens.replace('_', ' ').split(' ')]
+                    if keywords_states_all_in_segment(keywords, v_and_n_tokens):
+                        qa_type = 'act_ref_tool'
+                    else:
+                        qa_type = 'full_act'
+                else:
+                    raise ValueError('whould not in this branch')
+
+                # 使用by using a tool形式展示答案
+                if qa_type == 'act_ref_tool':
+                    # todo 如果有多个tool，先取第一个
+                    tool = tools[0]
+                    if tool in ['hand', 'hands']:
+                        pred_answer = 'by hand'
+                    else:
+                        pred_answer = 'by using a {}'.format(tool).replace('_', ' ')
+                    return pred_answer
+                # 使用 v + igdt + extras 拼接答案
+                elif qa_type == 'full_act':
+                    # todo 如果有多个v，先取第一个
+                    v = vs[0] if len(vs) > 0 else None
+                    # 将v的第一个词替换为正常时态
+                    v = ' '.join([lm.lemmatize(x, 'v') if i == 0 else x for i, x in enumerate(v.split(' '))])
+                    igdt_s = join_items(igdts)
+                    igdt_s = 'the ' + igdt_s if igdt_s != '' else None
+                    extras_s = ' '.join(extras)
+                    pred_answer = ' '.join([x for x in [v, igdt_s, extras_s] if x is not None]).replace('_', ' ')
+                    return pred_answer
+                else:
+                    raise Exception('qa_type of act_ref_tool_or_full_act is unknow!')
+
+    # 什么都没匹配到，返回N/A
+    return 'N/A'
 
 
-def act_first(question, data_drt_new):
-    question = question.lower().replace('(', '\(').replace(')', '\)')
-    # tokens_list = [[token for token in tokens.split(' ') if token != ''] for tokens in question.split(' and ')]
-    tokens_list = [tokens for tokens in question.split(' and ')]
-    tokens_list = [get_keywords([ts], seps=[',', ' '], stopwords=q_stopwords, puncts=['.', ';']) for ts in tokens_list]
-    tokens_list = [[(tk, lm.lemmatize(tk, 'v'), lm.lemmatize(tk, 'n')) for tk in tks] for tks in tokens_list]
-
-    match_result = {}
-    # 遍历问题的前后半句的所有组合方式
-    for sep_idx in range(1, len(tokens_list)):
-        # 分割问题为前半句和后半句
-        first = [token for tokens in tokens_list[:sep_idx] for token in tokens]
-        second = [token for tokens in tokens_list[sep_idx:] for token in tokens]
-        # 判断前半句和后半句的首词，是否为动词
-        verb_list = data_drt_new[data_drt_new['upos'] == 'VERB']['lemma'].tolist()
-        if not (first[0][1] in verb_list and second[0][1] in verb_list):
-            continue
-        # 记录匹配到前半句和后半句的句子的idx
-        first_sent_idxs = []
-        second_sent_idxs = []
-        # 遍历操作步骤的所有句子
-        # for sent_idx, direction in enumerate(direction_dfs):
-        for seq_id, direction in data_drt_new.groupby('seq_id'):
-            direction_tokens = direction['form'].tolist()
-            direction_tokens_lemma = direction['lemma'].tolist()
-            # 判断前半句问题，是否匹配到当前文本段落
-            first_match_cnt = 0
-            for f in first:
-                if token_match(f, direction_tokens + direction_tokens_lemma):
-                    first_match_cnt += 1
-            if first_match_cnt == len(first):
-                first_sent_idxs.append(seq_id)
-            # 判断后半句问题，是否匹配到当前文本段落
-            second_match_cnt = 0
-            for s in second:
-                if token_match(s, direction_tokens + direction_tokens_lemma):
-                    second_match_cnt += 1
-            if second_match_cnt == len(second):
-                second_sent_idxs.append(seq_id)
-
-        if len(first_sent_idxs) > 0 and len(second_sent_idxs) > 0:
-            match_result[sep_idx] = (first_sent_idxs, second_sent_idxs)
-    if len(match_result) == 0:
-        ret = 'N/A'
-    else:
-        first_idxs = [idx for idxs, _ in match_result.values() for idx in idxs]
-        second_idxs = [idx for _, idxs in match_result.values() for idx in idxs]
-        if len(first_idxs) == 0 or len(second_idxs) == 0:
-            ret = 'N/A'
-        elif sum(first_idxs) / len(first_idxs) < sum(second_idxs) / len(second_idxs):
-            ret = 'the first event'
-        elif sum(first_idxs) / len(first_idxs) > sum(second_idxs) / len(second_idxs):
-            ret = 'the second event'
-        else:
-            ret = 'equal'
-    return ret
-
-
-def place_before_act(igdt, act, new_direction_dfs, old_direction_dfs):
+def place_before_act_bak220131(igdt, act, new_direction_dfs, old_direction_dfs):
     # 1.重定位igdt名字
 
     # 2.找到同时包含igdt和act的句子
@@ -315,6 +257,64 @@ def place_before_act(igdt, act, new_direction_dfs, old_direction_dfs):
     return place
 
 
+def act_first(question, data_drt_new):
+    question = question.lower().replace('(', '\(').replace(')', '\)')
+    # tokens_list = [[token for token in tokens.split(' ') if token != ''] for tokens in question.split(' and ')]
+    tokens_list = [tokens for tokens in question.split(' and ')]
+    tokens_list = [get_keywords([ts], seps=[',', ' '], stopwords=q_stopwords, puncts=['.', ';']) for ts in tokens_list]
+    tokens_list = [[(tk, lm.lemmatize(tk, 'v'), lm.lemmatize(tk, 'n')) for tk in tks] for tks in tokens_list]
+
+    match_result = {}
+    # 遍历问题的前后半句的所有组合方式
+    for sep_idx in range(1, len(tokens_list)):
+        # 分割问题为前半句和后半句
+        first = [token for tokens in tokens_list[:sep_idx] for token in tokens]
+        second = [token for tokens in tokens_list[sep_idx:] for token in tokens]
+        # 判断前半句和后半句的首词，是否为动词
+        verb_list = data_drt_new[data_drt_new['upos'] == 'VERB']['lemma'].tolist()
+        if not (first[0][1] in verb_list and second[0][1] in verb_list):
+            continue
+        # 记录匹配到前半句和后半句的句子的idx
+        first_sent_idxs = []
+        second_sent_idxs = []
+        # 遍历操作步骤的所有句子
+        # for sent_idx, direction in enumerate(direction_dfs):
+        for seq_id, direction in data_drt_new.groupby('seq_id'):
+            direction_tokens = direction['form'].tolist()
+            direction_tokens_lemma = direction['lemma'].tolist()
+            # 判断前半句问题，是否匹配到当前文本段落
+            first_match_cnt = 0
+            for f in first:
+                if token_match(f, direction_tokens + direction_tokens_lemma):
+                    first_match_cnt += 1
+            if first_match_cnt == len(first):
+                first_sent_idxs.append(seq_id)
+            # 判断后半句问题，是否匹配到当前文本段落
+            second_match_cnt = 0
+            for s in second:
+                if token_match(s, direction_tokens + direction_tokens_lemma):
+                    second_match_cnt += 1
+            if second_match_cnt == len(second):
+                second_sent_idxs.append(seq_id)
+
+        if len(first_sent_idxs) > 0 and len(second_sent_idxs) > 0:
+            match_result[sep_idx] = (first_sent_idxs, second_sent_idxs)
+    if len(match_result) == 0:
+        ret = 'N/A'
+    else:
+        first_idxs = [idx for idxs, _ in match_result.values() for idx in idxs]
+        second_idxs = [idx for _, idxs in match_result.values() for idx in idxs]
+        if len(first_idxs) == 0 or len(second_idxs) == 0:
+            ret = 'N/A'
+        elif sum(first_idxs) / len(first_idxs) < sum(second_idxs) / len(second_idxs):
+            ret = 'the first event'
+        elif sum(first_idxs) / len(first_idxs) > sum(second_idxs) / len(second_idxs):
+            ret = 'the second event'
+        else:
+            ret = 'equal'
+    return ret
+
+
 def serch_result_infos(target_result, data_drt, question=None, answer=None):
     target_result_tokens = [[token, lm.lemmatize(token, 'n'), token[:-1] if token.endswith('s') else token] for
                             token in target_result.split(' ')]
@@ -406,9 +406,39 @@ def rule_for_qa(dataset):
             ret = act_first(key_str_q, data_drt_new)
             return ret
         elif 'place_before_act' == qa_type:
-            igdts, act = key_str_q.split('|')
-            place = place_before_act(igdts, act, new_direction_dfs, direction_dfs)
-            return 'N/A' if place is None else place
+            igdt, act = key_str_q.split('|')
+            q_kws = get_keywords([key_str_q.replace('|', ' ')], seps=[' and ', ' '], stopwords=q_stopwords,
+                                 puncts=['.', ',', ';'])
+            q_kws = [(kw, lm.lemmatize(kw, 'v'), lm.lemmatize(kw, 'n')) for kw in q_kws]
+            q_match_flag = False
+            for idx, row in data_drt[::-1].iterrows():
+                segment, argx_col = locate_direction_segment_plus(idx, row, data_drt[::-1])
+                if segment is not None:
+                    if q_match_flag is False:
+                        items = collect_annotation_items(segment)
+                        seg_tokens = segment['form'].tolist() + segment['lemma'].tolist()
+                        q_match_flag = keywords_states_all_in_segment(q_kws,
+                                                                      [t for ts in items for t in ts] + seg_tokens)
+                    else:
+                        item_infos = collect_segment_items(row, segment, argx_col)
+                        entity_igdt = item_infos['entity']['igdt']
+                        entity_habitat = item_infos['entity']['habitat']
+                        hidden_drop = [x.split('.')[0].replace('_', ' ') for x in item_infos['hidden'].get('drop', [])]
+                        hidden_shadow = [x.split('.')[0].replace('_', ' ') for x in
+                                         item_infos['hidden'].get('shadow', [])]
+                        hidden_habitat = [x.split('.')[0].replace('_', ' ') for x in
+                                          item_infos['hidden'].get('habitat', [])]
+                        coref = [x.split('.')[0].replace('_', ' ') for x in item_infos['coref']]
+                        igdts = entity_igdt + hidden_drop + hidden_shadow + coref
+                        habitats = entity_habitat + hidden_habitat
+                        for i in igdts:
+                            if igdt in [i, lm.lemmatize(i, 'n')] \
+                                    or lm.lemmatize(igdt, 'n') in [i, lm.lemmatize(i, 'n')]:
+                                if len(habitats) > 0:
+                                    return habitats[0]
+                else:
+                    continue
+            return 'N/A'
         elif 'count_times' == qa_type:
             collected_hidden = collect_hidden(directions['hidden'], key_str_q)
             collected_coref = collect_coref(directions['coref'], key_str_q)
@@ -436,7 +466,7 @@ def rule_for_qa(dataset):
                 igdts = entity_igdt + hidden_drop
                 igdt_string = 'the ' + join_items(igdts) if len(igdts) > 0 else None
                 # 容器字符串:
-                entity_habitat = info['entity']['habitat'] # 等于1的
+                entity_habitat = info['entity']['habitat']  # 等于1的
                 hidden_habitat = info['hidden'].get('habitat', [])
                 hidden_habitat = filter_items_by_id(hidden_habitat)
                 habitats = entity_habitat + hidden_habitat
