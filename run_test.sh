@@ -6,7 +6,7 @@ do
   do
     for upos_flag in True False;
     do
-      for seed in 1234 4321 1248 8421;
+      for seed in 1234 4321 1248;
       do
         python test.py \
         --model_name_or_path ${root_dir}/huggingface/bert-base-uncased \
