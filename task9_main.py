@@ -92,16 +92,15 @@ def analyze_log(filename=None):
 
 
 if __name__ == "__main__":
-    dataset_model_train, dataset_rule_train = data_process('train')
-    dataset_model_vali, dataset_rule_vali = data_process('vali')
-    dataset_model_test, dataset_rule_test = data_process('test')
-    a = pd.concat([x['data_drt'] for x in dataset_rule_train['recipe_data'].values()]+[x['data_drt'] for x in dataset_rule_test['recipe_data'].values()]+[x['data_drt'] for x in dataset_rule_vali['recipe_data'].values()])
+    # dataset_model_train, dataset_rule_train = data_process('train')
+    # dataset_model_vali, dataset_rule_vali = data_process('vali')
+    # dataset_model_test, dataset_rule_test = data_process('test')
+    # a = pd.concat([x['data_drt'] for x in dataset_rule_train['recipe_data'].values()]+[x['data_drt'] for x in dataset_rule_test['recipe_data'].values()]+[x['data_drt'] for x in dataset_rule_vali['recipe_data'].values()])
     # analyze_log()
     print("BEGIN")
 
     # 准备数据
-    if False:
-    # if os.path.exists(u'D:'):
+    if os.path.exists(u'D:'):
         dataset_model_vali, dataset_rule_vali = data_process('vali')
         dataset_model_vali = {key: value[:2] for key, value in dataset_model_vali.items()}
         dataset_model_vali = Dataset.from_dict(dataset_model_vali)

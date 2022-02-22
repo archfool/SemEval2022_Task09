@@ -14,7 +14,7 @@ src_root_dir = os.path.join(root_dir, u'src')
 data_root_dir = os.path.join(root_dir, u'data')
 
 src_dir = os.path.join(src_root_dir, 'SemEval2022_Task09')
-data_dir = os.path.join(data_root_dir, 'SemEval-2022', 'task9')
+data_dir = os.path.join(data_root_dir, 'SemEval2022', 'task9')
 if not os.path.exists(data_dir):
     os.mkdir(data_dir)
 
